@@ -29,10 +29,10 @@ print(f"Using {device} device")
 #Hiperparameters 
 num_samples = 1000000
 batch_size = 1000
-learning_rate = 1e-3
-num_epochs = 100
+learning_rate = 1e-5
+num_epochs = 10
 T=300
-
+examples = 5
 print('Running with: ', 'num_samples = ', num_samples,'batch_size = ', batch_size, 'learning_rate= ',learning_rate,'num_epochs =',num_epochs,'T =',T )
 
 #Create Training Data
@@ -483,8 +483,7 @@ Loss = []
 print('Begining training')
 # Training the denoising model
 for j in range(num_epochs):
-    if j%10 ==0:
-        print('Epoch: ', j)
+    print('Epoch: ', j)
     for batch, (X,y) in enumerate(train_load):
             T=300
             t = torch.randint(0, T, (batch_size,))
@@ -547,11 +546,23 @@ def get_sample():
     array = sam.numpy()
     return array
 print('Sampling an example')
+X = X.squeeze().detach().numpy() 
 #Plot sample
-s = get_sample()
+for i in range(examples):
+    s = get_sample()
 # Plot the image using matplotlib
-plt.imshow(s, cmap='gray', vmin=0, vmax=400)
-plt.xlabel(' ')
-plt.ylabel(' ')
-plt.axis('on')
-plt.savefig(os.path.join(output_dir, 'sample.pdf'))
+    plt.imshow(s, cmap='gray', vmin=0, vmax=400)
+    plt.xlabel(' ')
+    plt.ylabel(' ')
+    plt.axis('on')
+    plt.savefig(os.path.join(output_dir, f"sample{i}.pdf"))
+for i in range(examples):
+    s = X[i]
+# Plot the image using matplotlib
+    plt.imshow(s, cmap='gray', vmin=0, vmax=400)
+    plt.xlabel(' ')
+    plt.ylabel(' ')
+    plt.axis('on')
+    plt.savefig(os.path.join(output_dir, f"originals{i}.pdf"))
+s = get_sample()
+print(s)
