@@ -210,16 +210,15 @@ class DDPM_JetImage(common_base.CommonBase):
         n_samples = 1000
         test_data = self.train_dataloader.dataset
         C = test_data.label
-        c=torch.utils.data.random_split(C, [n_samples, len(C) - n_samples])
-        print(c.shape)
-        sys.exit()
+        c = C[:n_samples].view(n_samples,784)
+        print(c.shape,'conditions shape')
         samples_outputfile = str(self.results_folder / 'samples.pkl')
         if os.path.exists(samples_outputfile):
             with open(samples_outputfile, "rb") as f:
                 samples = pickle.load(f) 
             print(f"Loaded samples from: {samples_outputfile} (delete and re-run if you'd like to re-train)")
         else:
-            #samples = self.sample(model, image_size=self.image_dim, n_samples=n_samples,E,c)
+            samples = self.sample(model,E,c, image_size=self.image_dim, n_samples=n_samples)
 
             with open(samples_outputfile, "wb") as f:
                 pickle.dump(samples, f)
@@ -227,7 +226,7 @@ class DDPM_JetImage(common_base.CommonBase):
 
         # Get the generated images (i.e. last time step)
         samples_0 = np.squeeze(samples[-1])
-        
+        sys.exit()
         #---------------------------------------------
         # Plot some observables
         #---------------------------------------------  
@@ -338,7 +337,7 @@ class DDPM_JetImage(common_base.CommonBase):
     # With a trained model, we can now subtract the noise
     #---------------------------------------------
     @torch.no_grad()
-    def p_sample(self, model, x, t, t_index,c,emodel):
+    def p_sample(self,c,emodel, model, x, t, t_index):
         betas_t = self.extract(self.beta, t, x.shape)
         sqrt_one_minus_alphas_cumprod_t = self.extract(self.sqrt_one_minus_alphabar, t, x.shape)
         sqrt_recip_alphas_t = self.extract(self.sqrt_1_alpha, t, x.shape)
@@ -348,8 +347,8 @@ class DDPM_JetImage(common_base.CommonBase):
         # Equation 11 in the paper
         # Use our model (noise predictor) to predict the mean
         model_mean = sqrt_recip_alphas_t * (x - betas_t * model(x, t) / sqrt_one_minus_alphas_cumprod_t)
-        coef_s_t = s_tcoef*k_linear[t.item()]*emodel(c.view(1,784)).view(x.shape)
-        s_t_minusone = k_linear[t.item()-1]*emodel(c.view(1,784)).view(x.shape)
+        coef_s_t = s_tcoef*k_linear[t_index]*emodel(c).view(x.shape)
+        s_t_minusone = k_linear[t_index-1]*emodel(c).view(x.shape)
         model_mean = model_mean + coef_s_t+s_t_minusone
         if t_index == 0:
             return model_mean
@@ -363,19 +362,22 @@ class DDPM_JetImage(common_base.CommonBase):
     # Algorithm 2 (including returning all images)
     #---------------------------------------------
     @torch.no_grad()
-    def sample(self, model, image_size, n_samples,emodel,c, channels=1):
+    def sample(self, model,emodel,c, image_size, n_samples, channels=1):
         shape = (n_samples, channels, image_size, image_size)
         device = next(model.parameters()).device
         
         b = shape[0]
         # start from pure noise (for each example in the batch)
         img = torch.randn(shape, device=device)
-        s_T = emodel(c.view(n_samples,784)).view(img)
+        c= c.to(self.device)
+        img = img.to(self.device)
+        s_T = emodel(c).view(img.shape)
+        x_T = img + s_T
         imgs = []
 
         desc = f'Generating {n_samples} samples, {self.T} time steps'
         for i in tqdm(reversed(range(0, self.T)), desc=desc, total=self.T):
-            img = self.p_sample(model, img, torch.full((b,), i, device=device, dtype=torch.long), i,c,emodel)
+            img = self.p_sample(c,emodel,model, x_T, torch.full((b,), i, device=device, dtype=torch.long), i)
             imgs.append(img.cpu().numpy())
         return imgs
 
