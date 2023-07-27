@@ -53,6 +53,8 @@ class DDPM_JetImage(common_base.CommonBase):
         # Construct Dataset class
         self.image_dim = self.model_params['image_dim']
         self.n_train = self.model_params['n_train']
+        self.T_time = self.model_params['T_time']
+        self.hidden_dim = self.model_params['hidden_dim']
         train_dataset = JetImageDataset(results[f'jet__{self.jetR}__hadron__jet_image__{self.image_dim}'],results[f'jet__{self.jetR}__parton__jet_image__{self.image_dim}'],
                                         self.n_train)
         #Add here partons and filter before
@@ -97,9 +99,9 @@ class DDPM_JetImage(common_base.CommonBase):
         #---------------------------------------------
 
         # Define beta schedule, and define related parameters: alpha, alpha_bar
-        self.T = 300
+    
         
-        self.beta = torch.linspace(0.0001, 0.02, self.T)
+        self.beta = torch.linspace(0.0001, 0.02, self.T_time)
         alpha = 1. - self.beta
         alphabar = torch.cumprod(alpha, axis=0)
         alphabar_prev = torch.nn.functional.pad(alphabar[:-1], (1, 0), value=1.0)
@@ -115,17 +117,17 @@ class DDPM_JetImage(common_base.CommonBase):
         self.st_coef = -torch.sqrt(alpha)*(1. - alphabar_prev) / (1. - alphabar)
         #Enet
         class ENet(torch.nn.Module):
-            def __init__(self, dim, hidden_dim=50):
+            def __init__(self, dim, hidden_dim=self.hidden_dim):
                 super().__init__()
                 self.dnn_stack = torch.nn.Sequential(
-                    torch.nn.Linear(dim, 50),
+                    torch.nn.Linear(dim, hidden_dim),
                     torch.nn.ReLU(),
-                    torch.nn.Linear(50, 784)
+                    torch.nn.Linear(hidden_dim, dim)
                 )
 
             def forward(self, x):
                 return self.dnn_stack(x)
-        E = ENet(784)
+        E = ENet(self.image_dim*self.image_dim)
         E.to(self.device)
         # Forward diffusion example
         #imgs = next(iter(self.train_dataloader))
@@ -180,7 +182,7 @@ class DDPM_JetImage(common_base.CommonBase):
                     #print(X.shape,'hadrons')
     
                     # Algorithm 1 line 3: sample t uniformally for every example in the batch
-                    t = torch.randint(0, self.T, size=(1,), device=self.device).long()
+                    t = torch.randint(0, self.T_time, size=(1,), device=self.device).long()
                     loss = self.p_losses( model,E, X, t,size,C, noise=None)
                     training_loss.append(loss.cpu().detach().numpy().item())
                     if step % 100 == 0:
@@ -210,7 +212,7 @@ class DDPM_JetImage(common_base.CommonBase):
         n_samples = 1000
         test_data = self.train_dataloader.dataset
         C = test_data.label
-        c = C[:n_samples].view(n_samples,784)
+        c = C[:n_samples].view(n_samples,self.image_dim*self.image_dim)
         print(c.shape,'conditions shape')
         samples_outputfile = str(self.results_folder / 'samples.pkl')
         if os.path.exists(samples_outputfile):
@@ -273,7 +275,7 @@ class DDPM_JetImage(common_base.CommonBase):
             # Generate a gif of denoising
             fig = plt.figure()
             ims = []
-            for i in range(self.T):
+            for i in range(self.T_time):
                 im = plt.imshow(samples[i][random_index].reshape(self.image_dim, self.image_dim, 1), cmap="gray", animated=True)
                 ims.append([im])
             animate = animation.ArtistAnimation(fig, ims, interval=50, blit=True, repeat_delay=1000)
@@ -311,11 +313,11 @@ class DDPM_JetImage(common_base.CommonBase):
     def q(self,emodel, x_0, t,size, c, noise=None):
         if noise is None:
             noise = torch.randn_like(x_0)
-        T = 300
+        T = self.T_time
         k_linear = [t/T for t in range(T)]
         sqrt_alphabar_t = self.extract(self.sqrt_alphabar, t, x_0.shape)
         sqrt_one_minus_alphabar_t = self.extract(self.sqrt_one_minus_alphabar, t, x_0.shape)
-        qresult = sqrt_alphabar_t * x_0 + sqrt_one_minus_alphabar_t * noise+k_linear[t.item()]*emodel(c.view(size,784)).view(x_0.shape)
+        qresult = sqrt_alphabar_t * x_0 + sqrt_one_minus_alphabar_t * noise+k_linear[t.item()]*emodel(c.view(size,self.image_dim*self.image_dim)).view(x_0.shape)
         #qresult = qresult.to(self.device)
         return qresult
 
@@ -342,7 +344,7 @@ class DDPM_JetImage(common_base.CommonBase):
         sqrt_one_minus_alphas_cumprod_t = self.extract(self.sqrt_one_minus_alphabar, t, x.shape)
         sqrt_recip_alphas_t = self.extract(self.sqrt_1_alpha, t, x.shape)
         s_tcoef = self.extract(self.st_coef, t, x.shape)
-        T = 300
+        T = self.T_time
         k_linear = [t/T for t in range(T)]
         # Equation 11 in the paper
         # Use our model (noise predictor) to predict the mean
@@ -375,8 +377,8 @@ class DDPM_JetImage(common_base.CommonBase):
         x_T = img + s_T
         imgs = []
 
-        desc = f'Generating {n_samples} samples, {self.T} time steps'
-        for i in tqdm(reversed(range(0, self.T)), desc=desc, total=self.T):
+        desc = f'Generating {n_samples} samples, {self.T_time} time steps'
+        for i in tqdm(reversed(range(0, self.T_time)), desc=desc, total=self.T_time):
             img = self.p_sample(c,emodel,model, x_T, torch.full((b,), i, device=device, dtype=torch.long), i)
             imgs.append(img.cpu().numpy())
         return imgs
