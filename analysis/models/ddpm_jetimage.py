@@ -104,14 +104,15 @@ class DDPM_JetImage(common_base.CommonBase):
         alphabar = torch.cumprod(alpha, axis=0)
         alphabar_prev = torch.nn.functional.pad(alphabar[:-1], (1, 0), value=1.0)
         self.sqrt_1_alpha = torch.sqrt(1.0 / alpha)
+       
 
         # Quantities needed for diffusion q(x_t | x_{t-1})
         self.sqrt_alphabar = torch.sqrt(alphabar)
         self.sqrt_one_minus_alphabar = torch.sqrt(1. - alphabar)
-
+        self.sqrt_1_minalphabar = torch.sqrt(1.0/(1-alphabar))
         # Quantities needed for inversion q(x_{t-1} | x_t, x_0)
         self.posterior_variance = self.beta * (1. - alphabar_prev) / (1. - alphabar)
-        s_t_coef = -torch.sqrt(alpha)*(1. - alphabar_prev) / (1. - alphabar)
+        self.st_coef = -torch.sqrt(alpha)*(1. - alphabar_prev) / (1. - alphabar)
         #Enet
         class ENet(torch.nn.Module):
             def __init__(self, dim, hidden_dim=50):
@@ -125,20 +126,21 @@ class DDPM_JetImage(common_base.CommonBase):
             def forward(self, x):
                 return self.dnn_stack(x)
         E = ENet(784)
-        
+        E.to(self.device)
         # Forward diffusion example
-        imgs = next(iter(self.train_dataloader))
-        img0 = imgs[0][0]
-        print(img0.shape)
-        difuze = self.q(E,img0, torch.tensor([self.T-1]),torch.rand(img0.shape),torch.rand(img0.shape))
-        print('difuze size',difuze.shape)
-        plt.imshow(img0[0].numpy(), cmap='gray', vmin=0, vmax=1)
-        plt.savefig(f"{self.plot_folder}/img0.png")
-        plt.imshow(difuze[0].detach().numpy(), cmap='gray', vmin=0, vmax=1)
-        plt.savefig(f"{self.plot_folder}/img0_diffused.png")
-        plt.clf()
-        print('I saved example')
-        sys.exit()
+        #imgs = next(iter(self.train_dataloader))
+        #img0 = imgs[0][0]
+        #print(img0.shape)
+        #img0 = img0.to(self.device)
+        #difuze = self.q(E,img0, torch.tensor([self.T-1]),1,torch.rand(img0.shape),torch.rand(img0.shape))
+        #print('difuze size',difuze.shape)
+        #plt.imshow(img0[0].cpu().numpy(), cmap='gray', vmin=0, vmax=1)
+        #plt.savefig(f"{self.plot_folder}/img0.png")
+        #plt.imshow(difuze[0].detach().cpu().numpy(), cmap='gray', vmin=0, vmax=1)
+        #plt.savefig(f"{self.plot_folder}/img0_diffused.png")
+        #plt.clf()
+        #print('I saved example')
+
         #---------------------------------------------
         # Training the denoising model
         #---------------------------------------------
@@ -159,6 +161,7 @@ class DDPM_JetImage(common_base.CommonBase):
         learning_rate = self.model_params['learning_rate']
         n_epochs = self.model_params['n_epochs']
         optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+        opt = torch.optim.Adam(E.parameters(), lr=learning_rate)
 
         model_outputfile = str(self.results_folder / 'model.pkl')
         if os.path.exists(model_outputfile):
@@ -169,25 +172,25 @@ class DDPM_JetImage(common_base.CommonBase):
             for epoch in range(n_epochs):
                 print(f'Epoch {epoch}')
                 for step, (X,C) in enumerate(self.train_dataloader):
-                
+
                     X = X.to(self.device)
                     C = C.to(self.device)
-                    print(C.shape,'conditions')
-                    print(X.shape,'hadrons')
-                    sys.exit()
+                    size = C.shape[0]
+                    #print(C.shape,'conditions')
+                    #print(X.shape,'hadrons')
+    
                     # Algorithm 1 line 3: sample t uniformally for every example in the batch
-                    t = torch.randint(0, self.T, (self.batch_size,), device=self.device).long()
-
-                    loss = self.p_losses(model, batch, t)
+                    t = torch.randint(0, self.T, size=(1,), device=self.device).long()
+                    loss = self.p_losses( model,E, X, t,size,C, noise=None)
                     training_loss.append(loss.cpu().detach().numpy().item())
-
                     if step % 100 == 0:
                         print(f"  Loss (step {step}):", loss.item())
 
                     loss.backward()
                     optimizer.step()
+                    opt.step
                     optimizer.zero_grad()
-
+                    opt.zero_grad()
             print('Done training!')
             torch.save(model.state_dict(), model_outputfile)
             print(f'Saved model: {model_outputfile}')
@@ -195,8 +198,9 @@ class DDPM_JetImage(common_base.CommonBase):
             plt.xlabel('Training step')
             plt.ylabel('Loss')
             plt.savefig(str(self.plot_folder / f'loss.png'))
+            print('I saved loss plot')
             plt.clf()
-
+   
         #---------------------------------------------
         # Sampling from the trained model
         #---------------------------------------------
@@ -204,13 +208,18 @@ class DDPM_JetImage(common_base.CommonBase):
         print('------------------ Sampling ------------------')
         print('--------------------------------------------')
         n_samples = 1000
+        test_data = self.train_dataloader.dataset
+        C = test_data.label
+        c=torch.utils.data.random_split(C, [n_samples, len(C) - n_samples])
+        print(c.shape)
+        sys.exit()
         samples_outputfile = str(self.results_folder / 'samples.pkl')
         if os.path.exists(samples_outputfile):
             with open(samples_outputfile, "rb") as f:
                 samples = pickle.load(f) 
             print(f"Loaded samples from: {samples_outputfile} (delete and re-run if you'd like to re-train)")
         else:
-            samples = self.sample(model, image_size=self.image_dim, n_samples=n_samples)
+            #samples = self.sample(model, image_size=self.image_dim, n_samples=n_samples,E,c)
 
             with open(samples_outputfile, "wb") as f:
                 pickle.dump(samples, f)
@@ -285,29 +294,31 @@ class DDPM_JetImage(common_base.CommonBase):
     # -----------------------------------------------------------------------
     # Defining the loss function
     # -----------------------------------------------------------------------
-    def p_losses(self, denoise_model, x_0, t, noise=None):
+    def p_losses(self, denoise_model,emodel, x_0, t,size,c, noise=None):
         if noise is None:
             noise = torch.randn_like(x_0)
-
-        x_noisy = self.q(x_0=x_0, t=t, noise=noise)
-        predicted_noise = denoise_model(x_noisy, t)
-
-        loss = torch.nn.functional.mse_loss(noise, predicted_noise)
+        x_noisy = self.q(emodel=emodel,x_0=x_0, t=t,size=size,c=c, noise=noise)
+        sqrt_alphabar_t = self.extract(self.sqrt_alphabar, t, x_0.shape)
+        sqrt_recip_1minalphabar = self.extract(self.sqrt_1_minalphabar, t, x_0.shape)
+        actual_g = sqrt_recip_1minalphabar*(x_noisy-sqrt_alphabar_t*x_0)
+        predicted_g = denoise_model(x_noisy, t)
+        loss = torch.nn.functional.mse_loss(actual_g, predicted_g)
 
         return loss
 
     # -----------------------------------------------------------------------
     # Forward diffusion
     # -----------------------------------------------------------------------
-    def q(self,emodel, x_0, t, c, noise=None):
+    def q(self,emodel, x_0, t,size, c, noise=None):
         if noise is None:
             noise = torch.randn_like(x_0)
         T = 300
         k_linear = [t/T for t in range(T)]
         sqrt_alphabar_t = self.extract(self.sqrt_alphabar, t, x_0.shape)
         sqrt_one_minus_alphabar_t = self.extract(self.sqrt_one_minus_alphabar, t, x_0.shape)
-
-        return sqrt_alphabar_t * x_0 + sqrt_one_minus_alphabar_t * noise+k_linear[t.item()]*emodel(c.flatten()).view(x_0.shape)
+        qresult = sqrt_alphabar_t * x_0 + sqrt_one_minus_alphabar_t * noise+k_linear[t.item()]*emodel(c.view(size,784)).view(x_0.shape)
+        #qresult = qresult.to(self.device)
+        return qresult
 
     # -----------------------------------------------------------------------
     # Define function allowing us to extract t index for a batch
@@ -327,15 +338,19 @@ class DDPM_JetImage(common_base.CommonBase):
     # With a trained model, we can now subtract the noise
     #---------------------------------------------
     @torch.no_grad()
-    def p_sample(self, model, x, t, t_index):
+    def p_sample(self, model, x, t, t_index,c,emodel):
         betas_t = self.extract(self.beta, t, x.shape)
         sqrt_one_minus_alphas_cumprod_t = self.extract(self.sqrt_one_minus_alphabar, t, x.shape)
         sqrt_recip_alphas_t = self.extract(self.sqrt_1_alpha, t, x.shape)
-        
+        s_tcoef = self.extract(self.st_coef, t, x.shape)
+        T = 300
+        k_linear = [t/T for t in range(T)]
         # Equation 11 in the paper
         # Use our model (noise predictor) to predict the mean
         model_mean = sqrt_recip_alphas_t * (x - betas_t * model(x, t) / sqrt_one_minus_alphas_cumprod_t)
-
+        coef_s_t = s_tcoef*k_linear[t.item()]*emodel(c.view(1,784)).view(x.shape)
+        s_t_minusone = k_linear[t.item()-1]*emodel(c.view(1,784)).view(x.shape)
+        model_mean = model_mean + coef_s_t+s_t_minusone
         if t_index == 0:
             return model_mean
         else:
@@ -348,18 +363,19 @@ class DDPM_JetImage(common_base.CommonBase):
     # Algorithm 2 (including returning all images)
     #---------------------------------------------
     @torch.no_grad()
-    def sample(self, model, image_size, n_samples, channels=1):
+    def sample(self, model, image_size, n_samples,emodel,c, channels=1):
         shape = (n_samples, channels, image_size, image_size)
         device = next(model.parameters()).device
-
+        
         b = shape[0]
         # start from pure noise (for each example in the batch)
         img = torch.randn(shape, device=device)
+        s_T = emodel(c.view(n_samples,784)).view(img)
         imgs = []
 
         desc = f'Generating {n_samples} samples, {self.T} time steps'
         for i in tqdm(reversed(range(0, self.T)), desc=desc, total=self.T):
-            img = self.p_sample(model, img, torch.full((b,), i, device=device, dtype=torch.long), i)
+            img = self.p_sample(model, img, torch.full((b,), i, device=device, dtype=torch.long), i,c,emodel)
             imgs.append(img.cpu().numpy())
         return imgs
 
