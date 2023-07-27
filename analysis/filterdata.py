@@ -11,7 +11,7 @@ from silx.io.dictdump import dicttoh5, h5todict
 from collections import defaultdict
 import data_IO
 ##Data cutoffs
-jetR = 0.4
+jetR = 0.8
 #Matching condition dR<R/2
 #Flavor uds only
 min_pt = 35
@@ -24,8 +24,8 @@ min_numparticles = 2
 # Main processing function
 #---------------------------------------------------------------
 output_dir = 'Output'
-output_file = 'goodmerged.h5'
-filename = 'goodandfiltered.h5'
+output_file = 'somesamples.h5'
+filename = 'somesamplesfiltered.h5'
 
     # Load training data
 training_data_path = os.path.join(output_dir, output_file)
@@ -53,12 +53,12 @@ def Flavor(i):
     else:
         return False
 def Energy(i):
-    if min_pt <= results['jet__0.4__partonjet_pt'][i]:
+    if min_pt <= results['jet__0.8__partonjet_pt'][i]:
         return True
     else:
         return False
 def Num(i):
-    if min_numparticles <= results['jet__0.4__partonnumparticlesperjet'][i]:
+    if min_numparticles <= results['jet__0.8__partonnumparticlesperjet'][i]:
         return True
     else:
         return False
@@ -121,6 +121,6 @@ print('The data with at least two particles (parton level) is: ', len(num)/num_e
 
 #print('I centered jets')
 #Save
-#print(f'Writing results to {output_dir}/{filename}...')
-#dicttoh5(fresults, os.path.join(output_dir, filename), overwrite_data=True)
-#print('All done.')
+print(f'Writing results to {output_dir}/{filename}...')
+dicttoh5(fresults, os.path.join(output_dir, filename), overwrite_data=True)
+print('All done.')

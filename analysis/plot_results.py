@@ -45,10 +45,39 @@ def plot_results(config_file, output_dir, output_file):
     Plot_jets = True
     Plot_num = True
     Plot_z = True
-    Plot_2d = False
+    Plot_2d = True
     Flavor_plots = False
     Plot_esplits = False
-
+    #Stat 
+    photon_index = [i for i in range(results['jet_dR'].shape[0]) if results['leadingparticle_id'][i]== 22 ]
+    electron_index = [i for i in range(results['jet_dR'].shape[0]) if (results['leadingparticle_id'][i]== 11 or results['leadingparticle_id'][i]== -11)]
+    muon_index = [i for i in range(results['jet_dR'].shape[0]) if (results['leadingparticle_id'][i]== 13 or results['leadingparticle_id'][i]== -13)]
+    tau_index = [i for i in range(results['jet_dR'].shape[0]) if (results['leadingparticle_id'][i]== 15 or results['leadingparticle_id'][i]== -15)]
+    dquark_index =  [i for i in range(results['jet_dR'].shape[0]) if (results['leadingparticle_id'][i]== 1 or results['leadingparticle_id'][i]== -1)] 
+    uquark_index =  [i for i in range(results['jet_dR'].shape[0]) if (results['leadingparticle_id'][i]== 2 or results['leadingparticle_id'][i]== -2)] 
+    squark_index =  [i for i in range(results['jet_dR'].shape[0]) if (results['leadingparticle_id'][i]== 3 or results['leadingparticle_id'][i]== -3)] 
+    cquark_index =  [i for i in range(results['jet_dR'].shape[0]) if (results['leadingparticle_id'][i]== 4 or results['leadingparticle_id'][i]== -4)] 
+    bquark_index =  [i for i in range(results['jet_dR'].shape[0]) if (results['leadingparticle_id'][i]== 5 or results['leadingparticle_id'][i]== -5)] 
+    tquark_index =  [i for i in range(results['jet_dR'].shape[0]) if (results['leadingparticle_id'][i]== 6 or results['leadingparticle_id'][i]== -6)] 
+    gluon_index =  [i for i in range(results['jet_dR'].shape[0]) if (results['leadingparticle_id'][i]== 21 or results['leadingparticle_id'][i]== -21)] 
+    num_events = results['jet_dR'].shape[0]
+    totids={results['leadingparticle_id'][i] for i in range(results['jet_dR'].shape[0])}
+    print('ids present in the data: ',totids)
+    print( len(photon_index)*100/num_events, '%', 'of the total number of events are', 'Photon Jets')
+    print( len(electron_index)*100/num_events, '%', 'of the total number of events are', 'Electron/positron Jets')
+    print( len(muon_index)*100/num_events, '%', 'of the total number of events are', 'Muon Jets')
+    print( len(tau_index)*100/num_events, '%', 'of the total number of events are', 'tau Jets')
+    print( len(dquark_index)*100/num_events, '%', 'of the total number of events are', 'Down quark Jets')
+    print( len(uquark_index)*100/num_events, '%', 'of the total number of events are', 'Up quark Jets')
+    print( len(squark_index)*100/num_events, '%', 'of the total number of events are', 'Strange quark Jets')
+    print( len(cquark_index)*100/num_events, '%', 'of the total number of events are', 'Charm quark Jets')
+    print( len(bquark_index)*100/num_events, '%', 'of the total number of events are', 'Bottom quark Jets')
+    print( len(tquark_index)*100/num_events, '%', 'of the total number of events are', 'Top quark Jets')
+    print( len(gluon_index)*100/num_events, '%', 'of the total number of events are', 'Gluon Jets')
+    print('the total number of events is: ', len(tquark_index)+len(bquark_index)+ len(cquark_index)+ len(uquark_index)+len(dquark_index)+len(squark_index)+
+         len(tau_index)+len(muon_index) + len(electron_index)+len(photon_index)+len(gluon_index))
+   
+  
     #Print statistics
     if Stat:
         num_events = results['jet_dR'].shape[0]

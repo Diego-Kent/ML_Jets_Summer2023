@@ -23,13 +23,14 @@ class SteerAnalysis(common_base.CommonBase):
     #---------------------------------------------------------------
     # Constructor
     #---------------------------------------------------------------
-    def __init__(self, generate=False, write=False, read=False, analyze=False, inspect=False,
+    def __init__(self, generate=False, write=False, read=False, analyze=False,plotobs = False , inspect=False,
                  input_file='', config_file='', output_dir='', output_file='', **kwargs):
 
         self.generate = generate
         self.write = write
         self.read = read
         self.analyze = analyze
+        self.plotobs = plotobs
         self.input_file = input_file
         self.config_file = config_file
         self.output_dir = output_dir
@@ -86,7 +87,7 @@ class SteerAnalysis(common_base.CommonBase):
         if self.analyze:
             analysis = ml_analysis.MLAnalysis(self.config_file, self.output_dir)
             analysis.do_analysis(results)
-
+        if self.plotobs:
             # Run plotting script
             print()
             print('Run plotting script here...')
@@ -108,6 +109,9 @@ if __name__ == '__main__':
     parser.add_argument('--analyze', 
                         help='perform ML analysis', 
                         action='store_true', default=False)
+    parser.add_argument('--plotobs', 
+                        help='Plot observables', 
+                        action='store_true', default=False)
     parser.add_argument('-c', '--configFile', 
                         help='Path of config file for analysis',
                         action='store', type=str,
@@ -120,6 +124,7 @@ if __name__ == '__main__':
                         help='Output filename for hdf5',
                         action='store', type=str,
                         default='good_events_merged.h5', )
+    
     args = parser.parse_args()
 
     print('Configuring...')
@@ -143,7 +148,7 @@ if __name__ == '__main__':
     start_time = time.time()
 
     analysis = SteerAnalysis(generate=args.generate, write=args.write, read=args.read, analyze=args.analyze,
-                             input_file=args.read, config_file=args.configFile, output_dir=args.outputDir, output_file=args.outputFile)
+                             input_file=args.read,plotobs =args.plotobs, config_file=args.configFile, output_dir=args.outputDir, output_file=args.outputFile)
     analysis.run_analysis()
 
     print('--- {} minutes ---'.format((time.time() - start_time)/60.))

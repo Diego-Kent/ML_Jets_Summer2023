@@ -53,9 +53,9 @@ class DDPM_JetImage(common_base.CommonBase):
         # Construct Dataset class
         self.image_dim = self.model_params['image_dim']
         self.n_train = self.model_params['n_train']
-        train_dataset = JetImageDataset(results[f'jet__{self.jetR}__hadron__jet_image__{self.image_dim}'],
+        train_dataset = JetImageDataset(results[f'jet__{self.jetR}__hadron__jet_image__{self.image_dim}'],results[f'jet__{self.jetR}__parton__jet_image__{self.image_dim}'],
                                         self.n_train)
-
+        #Add here partons and filter before
         # Construct a dataloader
         self.batch_size = self.model_params['batch_size']
         self.train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True)  
@@ -98,6 +98,7 @@ class DDPM_JetImage(common_base.CommonBase):
 
         # Define beta schedule, and define related parameters: alpha, alpha_bar
         self.T = 300
+        
         self.beta = torch.linspace(0.0001, 0.02, self.T)
         alpha = 1. - self.beta
         alphabar = torch.cumprod(alpha, axis=0)
@@ -110,17 +111,34 @@ class DDPM_JetImage(common_base.CommonBase):
 
         # Quantities needed for inversion q(x_{t-1} | x_t, x_0)
         self.posterior_variance = self.beta * (1. - alphabar_prev) / (1. - alphabar)
+        s_t_coef = -torch.sqrt(alpha)*(1. - alphabar_prev) / (1. - alphabar)
+        #Enet
+        class ENet(torch.nn.Module):
+            def __init__(self, dim, hidden_dim=50):
+                super().__init__()
+                self.dnn_stack = torch.nn.Sequential(
+                    torch.nn.Linear(dim, 50),
+                    torch.nn.ReLU(),
+                    torch.nn.Linear(50, 784)
+                )
 
+            def forward(self, x):
+                return self.dnn_stack(x)
+        E = ENet(784)
+        
         # Forward diffusion example
         imgs = next(iter(self.train_dataloader))
         img0 = imgs[0][0]
-        difuze = self.q(img0, torch.tensor([self.T-1]))
-        plt.imshow(img0.numpy(), cmap='gray', vmin=0, vmax=1)
+        print(img0.shape)
+        difuze = self.q(E,img0, torch.tensor([self.T-1]),torch.rand(img0.shape),torch.rand(img0.shape))
+        print('difuze size',difuze.shape)
+        plt.imshow(img0[0].numpy(), cmap='gray', vmin=0, vmax=1)
         plt.savefig(f"{self.plot_folder}/img0.png")
-        plt.imshow(difuze.numpy(), cmap='gray', vmin=0, vmax=1)
+        plt.imshow(difuze[0].detach().numpy(), cmap='gray', vmin=0, vmax=1)
         plt.savefig(f"{self.plot_folder}/img0_diffused.png")
         plt.clf()
-
+        print('I saved example')
+        sys.exit()
         #---------------------------------------------
         # Training the denoising model
         #---------------------------------------------
@@ -150,10 +168,13 @@ class DDPM_JetImage(common_base.CommonBase):
             training_loss = []
             for epoch in range(n_epochs):
                 print(f'Epoch {epoch}')
-                for step, batch in enumerate(self.train_dataloader):
+                for step, (X,C) in enumerate(self.train_dataloader):
                 
-                    batch = batch.to(self.device)
-
+                    X = X.to(self.device)
+                    C = C.to(self.device)
+                    print(C.shape,'conditions')
+                    print(X.shape,'hadrons')
+                    sys.exit()
                     # Algorithm 1 line 3: sample t uniformally for every example in the batch
                     t = torch.randint(0, self.T, (self.batch_size,), device=self.device).long()
 
@@ -250,7 +271,7 @@ class DDPM_JetImage(common_base.CommonBase):
             animate = animation.ArtistAnimation(fig, ims, interval=50, blit=True, repeat_delay=1000)
             animate.save(str(self.plot_folder / f'{random_index}_generated.gif'))
 
-        sys.exit()    
+      
 
     # -----------------------------------------------------------------------
     #
@@ -278,14 +299,15 @@ class DDPM_JetImage(common_base.CommonBase):
     # -----------------------------------------------------------------------
     # Forward diffusion
     # -----------------------------------------------------------------------
-    def q(self, x_0, t, noise=None):
+    def q(self,emodel, x_0, t, c, noise=None):
         if noise is None:
             noise = torch.randn_like(x_0)
-
+        T = 300
+        k_linear = [t/T for t in range(T)]
         sqrt_alphabar_t = self.extract(self.sqrt_alphabar, t, x_0.shape)
         sqrt_one_minus_alphabar_t = self.extract(self.sqrt_one_minus_alphabar, t, x_0.shape)
 
-        return sqrt_alphabar_t * x_0 + sqrt_one_minus_alphabar_t * noise
+        return sqrt_alphabar_t * x_0 + sqrt_one_minus_alphabar_t * noise+k_linear[t.item()]*emodel(c.flatten()).view(x_0.shape)
 
     # -----------------------------------------------------------------------
     # Define function allowing us to extract t index for a batch
@@ -345,15 +367,17 @@ class DDPM_JetImage(common_base.CommonBase):
 # Dataset for jet images
 # ================================================================================================
 class JetImageDataset(torch.utils.data.Dataset):
-    def __init__(self, X, n_train):
+    def __init__(self, X,C, n_train):
         super().__init__()
         # Add a dimension for channel (expected by the model)
         X = X[:n_train,:,:]
+        C = C[:n_train,:,:]
         X = np.expand_dims(X, axis=1)
+        C = np.expand_dims(C, axis=1)
         self.data = torch.from_numpy(X).float()
-
+        self.label = torch.from_numpy(C).float()
     def __len__(self):
         return self.data.shape[0]
 
     def __getitem__(self, idx):
-        return self.data[idx]
+        return self.data[idx],self.label[idx]
