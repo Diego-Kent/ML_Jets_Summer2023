@@ -226,7 +226,7 @@ class DDPM_JetImage(common_base.CommonBase):
 
         # Get the generated images (i.e. last time step)
         samples_0 = np.squeeze(samples[-1])
-        sys.exit()
+ 
         #---------------------------------------------
         # Plot some observables
         #---------------------------------------------  
@@ -235,16 +235,16 @@ class DDPM_JetImage(common_base.CommonBase):
         print('--------------------------------------------')
 
         # Get images from the training set, for comparison
-        train_dataset = self.train_dataloader.dataset
-        indices = torch.randperm(len(train_dataset))[:n_samples]
-        train_samples = np.squeeze(torch.stack([train_dataset[idx] for idx in indices]).numpy())
+        test_had = test_data.data 
+        indices = torch.randperm(len(test_had))[:n_samples]
+        train_had = np.squeeze(torch.stack([test_had[idx] for idx in indices]).numpy())
 
         # Now, samples_0 and train_samples are of shape (n_samples, image_dim, image_dim)
-
+   
         # N pixels above threshold
         threshold = 1.e-2
         N_generated = np.sum(samples_0 > threshold, axis=(1,2))
-        N_train = np.sum(train_samples > threshold, axis=(1,2))
+        N_train = np.sum(train_had > threshold, axis=(1,2))
         plot_results.plot_histogram_1d(x_list=[N_generated, N_train], 
                                        label_list=['generated', 'target'],
                                        bins=np.linspace(-0.5, 29.5, 31),
@@ -254,7 +254,7 @@ class DDPM_JetImage(common_base.CommonBase):
 
         # z distribution
         z_generated = samples_0.flatten()
-        z_train = train_samples.flatten()
+        z_train = train_had.flatten()
         plot_results.plot_histogram_1d(x_list=[z_generated, z_train], 
                                        label_list=['generated', 'target'],
                                        bins=np.linspace(0., 1., 101),
