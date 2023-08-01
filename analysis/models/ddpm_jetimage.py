@@ -16,6 +16,7 @@ from tqdm.auto import tqdm
 import pickle
 
 import torch
+import torch.nn as nn
 import torchvision
 
 from architectures import unet
@@ -36,10 +37,10 @@ class DDPM_JetImage(common_base.CommonBase):
         
         self.initialize_data(results)
 
-        self.results_folder = pathlib.Path(f"{self.output_dir}/results")
+        self.results_folder = pathlib.Path(f"{self.output_dir}/resultstoy")
         self.results_folder.mkdir(exist_ok = True)
 
-        self.plot_folder = pathlib.Path(f"{self.output_dir}/plot")
+        self.plot_folder = pathlib.Path(f"{self.output_dir}/plottoy")
         self.plot_folder.mkdir(exist_ok = True)
 
         print(self)
@@ -55,7 +56,8 @@ class DDPM_JetImage(common_base.CommonBase):
         self.n_train = self.model_params['n_train']
         self.T_time = self.model_params['T_time']
         self.hidden_dim = self.model_params['hidden_dim']
-        train_dataset = JetImageDataset(results[f'jet__{self.jetR}__hadron__jet_image__{self.image_dim}'],results[f'jet__{self.jetR}__parton__jet_image__{self.image_dim}'],
+        self.threshold = self.model_params['threshold']
+        train_dataset = JetImageDataset(results['Cond'],results['Had'],
                                         self.n_train)
         #Add here partons and filter before
         # Construct a dataloader
@@ -99,9 +101,32 @@ class DDPM_JetImage(common_base.CommonBase):
         #---------------------------------------------
 
         # Define beta schedule, and define related parameters: alpha, alpha_bar
-    
-        
-        self.beta = torch.linspace(0.0001, 0.02, self.T_time)
+        def cosine_beta_schedule(timesteps, s=0.008):
+            steps = self.T_time + 1
+            x = torch.linspace(0, timesteps, steps)
+            alphas_cumprod = torch.cos(((x / timesteps) + s) / (1 + s) * torch.pi * 0.5) ** 2
+            alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
+            betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
+            return torch.clip(betas, 0.0001, 0.9999)
+
+        def linear_beta_schedule(timesteps):
+            beta_start = 0.0001
+            beta_end = 0.02
+            return torch.linspace(beta_start, beta_end, timesteps)
+
+        def quadratic_beta_schedule(timesteps):
+            beta_start = 0.0001
+            beta_end = 0.02
+            return torch.linspace(beta_start**0.5, beta_end**0.5, timesteps) ** 2
+
+        def sigmoid_beta_schedule(timesteps):
+            beta_start = 0.0001
+            beta_end = 0.02
+            betas = torch.linspace(-6, 6, timesteps)
+            return torch.sigmoid(betas) * (beta_end - beta_start) + beta_start
+
+        self.beta = quadratic_beta_schedule(timesteps=self.T_time)
+       
         alpha = 1. - self.beta
         alphabar = torch.cumprod(alpha, axis=0)
         alphabar_prev = torch.nn.functional.pad(alphabar[:-1], (1, 0), value=1.0)
@@ -115,6 +140,8 @@ class DDPM_JetImage(common_base.CommonBase):
         # Quantities needed for inversion q(x_{t-1} | x_t, x_0)
         self.posterior_variance = self.beta * (1. - alphabar_prev) / (1. - alphabar)
         self.st_coef = -torch.sqrt(alpha)*(1. - alphabar_prev) / (1. - alphabar)
+        self.kt = 1-torch.sqrt(alphabar)
+        self.ktprev = torch.nn.functional.pad(self.kt[:-1], (1, 0), value=1.0)
         #Enet
         class ENet(torch.nn.Module):
             def __init__(self, dim, hidden_dim=self.hidden_dim):
@@ -122,13 +149,44 @@ class DDPM_JetImage(common_base.CommonBase):
                 self.dnn_stack = torch.nn.Sequential(
                     torch.nn.Linear(dim, hidden_dim),
                     torch.nn.ReLU(),
+                    torch.nn.Linear(hidden_dim, hidden_dim),
+                    torch.nn.ReLU(),
+                    torch.nn.Linear(hidden_dim, hidden_dim),
+                    torch.nn.ReLU(),
+                    torch.nn.Linear(hidden_dim, hidden_dim),
+                    torch.nn.ReLU(),
                     torch.nn.Linear(hidden_dim, dim)
                 )
 
             def forward(self, x):
                 return self.dnn_stack(x)
-        E = ENet(self.image_dim*self.image_dim)
+
+        class SimpleCNN(nn.Module):
+            def __init__(self):
+                super(SimpleCNN, self).__init__()
+        # Define the layers of the CNN
+                self.conv1 = nn.Conv2d(in_channels=1, out_channels=16, kernel_size=3, padding=1)
+                self.relu1 = nn.ReLU()
+                self.conv2 = nn.Conv2d(in_channels=16, out_channels=16, kernel_size=3, padding=1)
+                self.relu2 = nn.ReLU()
+                self.conv3 = nn.Conv2d(in_channels=16, out_channels=1, kernel_size=3, padding=1)
+
+            def forward(self, x):
+        # Perform the forward pass
+                x = self.conv1(x)
+                x = self.relu1(x)
+                x = self.conv2(x)
+                x = self.relu2(x)
+                x = self.conv3(x)
+                return x
+
+# Create an instance of the SimpleCNN model
+        E =ENet(self.image_dim*self.image_dim)
+      #  E = SimpleCNN()
         E.to(self.device)
+
+        print('I created the E net with hiddendim = ',self.hidden_dim)
+        
         # Forward diffusion example
         #imgs = next(iter(self.train_dataloader))
         #img0 = imgs[0][0]
@@ -156,7 +214,7 @@ class DDPM_JetImage(common_base.CommonBase):
         )
         model.to(self.device)
         self.count_parameters(model)
-
+        print('I created the U-net')
         print()
         print('------------------ Training ------------------')
         # Hyperparameters
@@ -171,6 +229,7 @@ class DDPM_JetImage(common_base.CommonBase):
             print(f"Loaded trained model from: {model_outputfile} (delete and re-run if you'd like to re-train)")
         else:
             training_loss = []
+          
             for epoch in range(n_epochs):
                 print(f'Epoch {epoch}')
                 for step, (X,C) in enumerate(self.train_dataloader):
@@ -183,14 +242,14 @@ class DDPM_JetImage(common_base.CommonBase):
     
                     # Algorithm 1 line 3: sample t uniformally for every example in the batch
                     t = torch.randint(0, self.T_time, size=(1,), device=self.device).long()
-                    loss = self.p_losses( model,E, X, t,size,C, noise=None)
+                    noise = torch.randn_like(X)
+                    loss = self.p_losses( model,E, X, t,size,C, noise)
                     training_loss.append(loss.cpu().detach().numpy().item())
-                    if step % 100 == 0:
+                    if step % 1000 == 0:
                         print(f"  Loss (step {step}):", loss.item())
-
                     loss.backward()
                     optimizer.step()
-                    opt.step
+                    opt.step()
                     optimizer.zero_grad()
                     opt.zero_grad()
             print('Done training!')
@@ -244,7 +303,7 @@ class DDPM_JetImage(common_base.CommonBase):
         # Now, samples_0 and train_samples are of shape (n_samples, image_dim, image_dim)
    
         # N pixels above threshold
-        threshold = 1.e-2
+        threshold = self.threshold
         N_generated = np.sum(samples_0 > threshold, axis=(1,2))
         N_train = np.sum(train_had > threshold, axis=(1,2))
         plot_results.plot_histogram_1d(x_list=[N_generated, N_train], 
@@ -266,7 +325,7 @@ class DDPM_JetImage(common_base.CommonBase):
                                        output_dir=self.plot_folder)
 
         # Plot some sample images
-        for random_index in range(3):
+        for random_index in range(5):
 
             plt.imshow(samples_0[random_index].reshape(self.image_dim, self.image_dim, 1), cmap="gray")
             plt.savefig(str(self.plot_folder / f'{random_index}_generated.png'))
@@ -295,9 +354,7 @@ class DDPM_JetImage(common_base.CommonBase):
     # -----------------------------------------------------------------------
     # Defining the loss function
     # -----------------------------------------------------------------------
-    def p_losses(self, denoise_model,emodel, x_0, t,size,c, noise=None):
-        if noise is None:
-            noise = torch.randn_like(x_0)
+    def p_losses(self, denoise_model,emodel, x_0, t,size,c, noise): 
         x_noisy = self.q(emodel=emodel,x_0=x_0, t=t,size=size,c=c, noise=noise)
         sqrt_alphabar_t = self.extract(self.sqrt_alphabar, t, x_0.shape)
         sqrt_recip_1minalphabar = self.extract(self.sqrt_1_minalphabar, t, x_0.shape)
@@ -310,14 +367,13 @@ class DDPM_JetImage(common_base.CommonBase):
     # -----------------------------------------------------------------------
     # Forward diffusion
     # -----------------------------------------------------------------------
-    def q(self,emodel, x_0, t,size, c, noise=None):
-        if noise is None:
-            noise = torch.randn_like(x_0)
-        T = self.T_time
-        k_linear = [t/T for t in range(T)]
+    def q(self,emodel, x_0, t,size, c, noise):
+      
+        k_t = self.extract(self.kt, t, x_0.shape)
         sqrt_alphabar_t = self.extract(self.sqrt_alphabar, t, x_0.shape)
+       
         sqrt_one_minus_alphabar_t = self.extract(self.sqrt_one_minus_alphabar, t, x_0.shape)
-        qresult = sqrt_alphabar_t * x_0 + sqrt_one_minus_alphabar_t * noise+k_linear[t.item()]*emodel(c.view(size,self.image_dim*self.image_dim)).view(x_0.shape)
+        qresult = sqrt_alphabar_t * x_0 + sqrt_one_minus_alphabar_t * noise+k_t*emodel(c.view(size,self.image_dim,self.image_dim)).view(x_0.shape)
         #qresult = qresult.to(self.device)
         return qresult
 
@@ -344,13 +400,14 @@ class DDPM_JetImage(common_base.CommonBase):
         sqrt_one_minus_alphas_cumprod_t = self.extract(self.sqrt_one_minus_alphabar, t, x.shape)
         sqrt_recip_alphas_t = self.extract(self.sqrt_1_alpha, t, x.shape)
         s_tcoef = self.extract(self.st_coef, t, x.shape)
-        T = self.T_time
-        k_linear = [t/T for t in range(T)]
+        k_t = self.extract(self.kt, t, x.shape)
+        k_tprev = self.extract(self.ktprev, t, x.shape)
+    
         # Equation 11 in the paper
         # Use our model (noise predictor) to predict the mean
         model_mean = sqrt_recip_alphas_t * (x - betas_t * model(x, t) / sqrt_one_minus_alphas_cumprod_t)
-        coef_s_t = s_tcoef*k_linear[t_index]*emodel(c).view(x.shape)
-        s_t_minusone = k_linear[t_index-1]*emodel(c).view(x.shape)
+        coef_s_t = s_tcoef*k_t*emodel(c.view(1000,1,16,16)).view(x.shape)
+        s_t_minusone = k_tprev*emodel(c.view(1000,1,16,16)).view(x.shape)
         model_mean = model_mean + coef_s_t+s_t_minusone
         if t_index == 0:
             return model_mean
@@ -373,7 +430,7 @@ class DDPM_JetImage(common_base.CommonBase):
         img = torch.randn(shape, device=device)
         c= c.to(self.device)
         img = img.to(self.device)
-        s_T = emodel(c).view(img.shape)
+        s_T = emodel(c.view(1000,1,16,16)).view(img.shape)
         x_T = img + s_T
         imgs = []
 
