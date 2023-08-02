@@ -4,8 +4,9 @@ import yaml
 import os
 
 import torch
-
-from models import ddpm_jetimage
+import sys
+sys.path.append('.')
+from analysis.models import ddpm_jetimage
 import plot_results
 
 import common_base
@@ -90,6 +91,6 @@ class MLAnalysis(common_base.CommonBase):
             # Initialize model
             if model_name == 'ddpm_jetimage':
                 ml_model = ddpm_jetimage.DDPM_JetImage(results, model_params, self.jetR, self.torch_device, self.output_dir)
-
+     
             # Train model
             ml_model.train()

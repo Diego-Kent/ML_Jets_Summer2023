@@ -5,6 +5,10 @@ Based on https://huggingface.co/blog/annotated-diffusion,
 which implements the DDPM paper https://arxiv.org/abs/2006.11239.
 """
 
+import torch
+import random
+import torchvision
+import torch.nn as nn
 import os
 import sys
 import pathlib
@@ -15,9 +19,6 @@ import matplotlib.animation as animation
 from tqdm.auto import tqdm
 import pickle
 
-import torch
-import torch.nn as nn
-import torchvision
 
 from architectures import unet
 import plot_results
@@ -37,10 +38,10 @@ class DDPM_JetImage(common_base.CommonBase):
         
         self.initialize_data(results)
 
-        self.results_folder = pathlib.Path(f"{self.output_dir}/resultstoy")
+        self.results_folder = pathlib.Path(f"{self.output_dir}/tresults")
         self.results_folder.mkdir(exist_ok = True)
 
-        self.plot_folder = pathlib.Path(f"{self.output_dir}/plottoy")
+        self.plot_folder = pathlib.Path(f"{self.output_dir}/tplot")
         self.plot_folder.mkdir(exist_ok = True)
 
         print(self)
@@ -54,12 +55,9 @@ class DDPM_JetImage(common_base.CommonBase):
         # Construct Dataset class
         self.image_dim = self.model_params['image_dim']
         self.n_train = self.model_params['n_train']
-        self.T_time = self.model_params['T_time']
-        self.hidden_dim = self.model_params['hidden_dim']
-        self.threshold = self.model_params['threshold']
-        train_dataset = JetImageDataset(results['Cond'],results['Had'],
+        train_dataset = JetImageDataset(results['Had'],results['Cond'],
                                         self.n_train)
-        #Add here partons and filter before
+
         # Construct a dataloader
         self.batch_size = self.model_params['batch_size']
         self.train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True)  
@@ -101,110 +99,68 @@ class DDPM_JetImage(common_base.CommonBase):
         #---------------------------------------------
 
         # Define beta schedule, and define related parameters: alpha, alpha_bar
-        def cosine_beta_schedule(timesteps, s=0.008):
-            steps = self.T_time + 1
-            x = torch.linspace(0, timesteps, steps)
-            alphas_cumprod = torch.cos(((x / timesteps) + s) / (1 + s) * torch.pi * 0.5) ** 2
-            alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
-            betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
-            return torch.clip(betas, 0.0001, 0.9999)
-
-        def linear_beta_schedule(timesteps):
-            beta_start = 0.0001
-            beta_end = 0.02
-            return torch.linspace(beta_start, beta_end, timesteps)
-
-        def quadratic_beta_schedule(timesteps):
-            beta_start = 0.0001
-            beta_end = 0.02
-            return torch.linspace(beta_start**0.5, beta_end**0.5, timesteps) ** 2
-
-        def sigmoid_beta_schedule(timesteps):
-            beta_start = 0.0001
-            beta_end = 0.02
-            betas = torch.linspace(-6, 6, timesteps)
-            return torch.sigmoid(betas) * (beta_end - beta_start) + beta_start
-
-        self.beta = quadratic_beta_schedule(timesteps=self.T_time)
-       
+        import torch
+        import torchvision
+        import torch.nn as nn
+        self.T = 300
+        self.beta = torch.linspace(0.0001, 0.02, self.T)
         alpha = 1. - self.beta
         alphabar = torch.cumprod(alpha, axis=0)
         alphabar_prev = torch.nn.functional.pad(alphabar[:-1], (1, 0), value=1.0)
         self.sqrt_1_alpha = torch.sqrt(1.0 / alpha)
-       
 
         # Quantities needed for diffusion q(x_t | x_{t-1})
         self.sqrt_alphabar = torch.sqrt(alphabar)
         self.sqrt_one_minus_alphabar = torch.sqrt(1. - alphabar)
-        self.sqrt_1_minalphabar = torch.sqrt(1.0/(1-alphabar))
+
         # Quantities needed for inversion q(x_{t-1} | x_t, x_0)
         self.posterior_variance = self.beta * (1. - alphabar_prev) / (1. - alphabar)
-        self.st_coef = -torch.sqrt(alpha)*(1. - alphabar_prev) / (1. - alphabar)
-        self.kt = 1-torch.sqrt(alphabar)
-        self.ktprev = torch.nn.functional.pad(self.kt[:-1], (1, 0), value=1.0)
-        #Enet
-        class ENet(torch.nn.Module):
-            def __init__(self, dim, hidden_dim=self.hidden_dim):
-                super().__init__()
-                self.dnn_stack = torch.nn.Sequential(
-                    torch.nn.Linear(dim, hidden_dim),
-                    torch.nn.ReLU(),
-                    torch.nn.Linear(hidden_dim, hidden_dim),
-                    torch.nn.ReLU(),
-                    torch.nn.Linear(hidden_dim, hidden_dim),
-                    torch.nn.ReLU(),
-                    torch.nn.Linear(hidden_dim, hidden_dim),
-                    torch.nn.ReLU(),
-                    torch.nn.Linear(hidden_dim, dim)
-                )
 
-            def forward(self, x):
-                return self.dnn_stack(x)
-
-        class SimpleCNN(nn.Module):
-            def __init__(self):
-                super(SimpleCNN, self).__init__()
-        # Define the layers of the CNN
-                self.conv1 = nn.Conv2d(in_channels=1, out_channels=16, kernel_size=3, padding=1)
-                self.relu1 = nn.ReLU()
-                self.conv2 = nn.Conv2d(in_channels=16, out_channels=16, kernel_size=3, padding=1)
-                self.relu2 = nn.ReLU()
-                self.conv3 = nn.Conv2d(in_channels=16, out_channels=1, kernel_size=3, padding=1)
-
-            def forward(self, x):
-        # Perform the forward pass
-                x = self.conv1(x)
-                x = self.relu1(x)
-                x = self.conv2(x)
-                x = self.relu2(x)
-                x = self.conv3(x)
-                return x
-
-# Create an instance of the SimpleCNN model
-        E =ENet(self.image_dim*self.image_dim)
-      #  E = SimpleCNN()
-        E.to(self.device)
-
-        print('I created the E net with hiddendim = ',self.hidden_dim)
-        
         # Forward diffusion example
         #imgs = next(iter(self.train_dataloader))
         #img0 = imgs[0][0]
-        #print(img0.shape)
-        #img0 = img0.to(self.device)
-        #difuze = self.q(E,img0, torch.tensor([self.T-1]),1,torch.rand(img0.shape),torch.rand(img0.shape))
-        #print('difuze size',difuze.shape)
-        #plt.imshow(img0[0].cpu().numpy(), cmap='gray', vmin=0, vmax=1)
+        #difuze = self.q(img0, torch.tensor([self.T-1]))
+        #plt.imshow(img0.numpy(), cmap='gray', vmin=0, vmax=1)
         #plt.savefig(f"{self.plot_folder}/img0.png")
-        #plt.imshow(difuze[0].detach().cpu().numpy(), cmap='gray', vmin=0, vmax=1)
+        #plt.imshow(difuze.numpy(), cmap='gray', vmin=0, vmax=1)
         #plt.savefig(f"{self.plot_folder}/img0_diffused.png")
         #plt.clf()
-        #print('I saved example')
+        import torch
 
-        #---------------------------------------------
+
+
+# Define the simple neural network class
+        class SimpleNN(nn.Module):
+            def __init__(self, input_size, hidden_size, output_size):
+                super(SimpleNN, self).__init__()
+                self.fc1 = nn.Linear(input_size, hidden_size)
+                self.relu = nn.ReLU()
+                self.fc2 = nn.Linear(hidden_size, output_size)
+        
+            def forward(self, x):
+                x = self.fc1(x)
+                x = self.relu(x)
+                x = self.fc2(x)
+                return x
+
+
+    # Define the network dimensions
+        input_size = 256  # Input size of the network (number of input features)
+        hidden_size = 192  # Size of the hidden layer
+        output_size = 128  # Output size of the network (number of classes)
+    
+    # Create an instance of the simple neural network
+        cencoder = SimpleNN(input_size, hidden_size, output_size)
+        hencoder = SimpleNN(input_size, hidden_size, output_size)
+        cencoder.to(self.device)
+        hencoder.to(self.device)
+   # Creating a random input tensor of shape (1, input_size)
+    
+
+   #--------------------------------
         # Training the denoising model
         #---------------------------------------------
-        print()
+     
         print('------------------- Model -------------------')
         # Expects 4D tensor input: (batch, channels, height, width)
         model = unet.Unet(
@@ -214,44 +170,43 @@ class DDPM_JetImage(common_base.CommonBase):
         )
         model.to(self.device)
         self.count_parameters(model)
-        print('I created the U-net')
+
         print()
         print('------------------ Training ------------------')
         # Hyperparameters
         learning_rate = self.model_params['learning_rate']
         n_epochs = self.model_params['n_epochs']
         optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-        opt = torch.optim.Adam(E.parameters(), lr=learning_rate)
-
+        hopt = torch.optim.Adam(hencoder.parameters(), lr=learning_rate)
+        copt = torch.optim.Adam(cencoder.parameters(), lr=learning_rate)
         model_outputfile = str(self.results_folder / 'model.pkl')
         if os.path.exists(model_outputfile):
             model.load_state_dict(torch.load(model_outputfile))
             print(f"Loaded trained model from: {model_outputfile} (delete and re-run if you'd like to re-train)")
         else:
             training_loss = []
-          
             for epoch in range(n_epochs):
                 print(f'Epoch {epoch}')
-                for step, (X,C) in enumerate(self.train_dataloader):
-
-                    X = X.to(self.device)
+                for step, (H,C) in enumerate(self.train_dataloader):
+                
+                    H = H.to(self.device)
                     C = C.to(self.device)
-                    size = C.shape[0]
-                    #print(C.shape,'conditions')
-                    #print(X.shape,'hadrons')
-    
                     # Algorithm 1 line 3: sample t uniformally for every example in the batch
-                    t = torch.randint(0, self.T_time, size=(1,), device=self.device).long()
-                    noise = torch.randn_like(X)
-                    loss = self.p_losses( model,E, X, t,size,C, noise)
+                    t = torch.randint(0, self.T, (self.batch_size,), device=self.device).long()
+                    loss = self.p_losses(model,cencoder,hencoder, H,C, t)
                     training_loss.append(loss.cpu().detach().numpy().item())
-                    if step % 1000 == 0:
+
+                    if step % 100 == 0:
                         print(f"  Loss (step {step}):", loss.item())
+
                     loss.backward()
                     optimizer.step()
-                    opt.step()
                     optimizer.zero_grad()
-                    opt.zero_grad()
+                    hopt.step()
+                    hopt.zero_grad()
+                    copt.step()
+                    copt.zero_grad()
+
             print('Done training!')
             torch.save(model.state_dict(), model_outputfile)
             print(f'Saved model: {model_outputfile}')
@@ -259,27 +214,84 @@ class DDPM_JetImage(common_base.CommonBase):
             plt.xlabel('Training step')
             plt.ylabel('Loss')
             plt.savefig(str(self.plot_folder / f'loss.png'))
-            print('I saved loss plot')
             plt.clf()
-   
+
         #---------------------------------------------
         # Sampling from the trained model
-        #---------------------------------------------
+        #Create test conditions 
+        print('Creating test samples')
+        # Define Hadronization function
+        im_dim = 16
+        num_samples = 1000
+        def choose_z():
+            z =[]
+            N = random.randint(2,6)
+            for k in range(N):
+                if k == 0:
+                    z_0 = random.uniform(0, 0.9)
+                    z.append(z_0)
+                elif k == N-1:
+                    z.append(1-sum(z))
+                else:
+                    z.append(random.uniform(0, 1-sum(z)))
+            return z
+        def hadronize(P):
+            L =[]
+            while len(L)<2:
+                for i in range(im_dim):
+                    for j in range(im_dim):
+                        if P[i,j]>0:
+                            M = np.zeros((im_dim, im_dim))
+                            z = choose_z()
+                            for l in range(len(z)):
+                                eta = np.round(np.random.normal(i, 1, 1)[0]).astype(np.int32)  
+                                phi = np.round(np.random.normal(j, 1, 1)[0]).astype(np.int32)  
+                                if (eta in range(im_dim) and phi in range(im_dim)):
+                                    M[eta,phi] = z[l]
+                            L.append(M) 
+            return sum(L)
+#Define two different looking starting jets
+        Point = np.zeros((im_dim, im_dim))
+        Point[6,6] = 1
+#Define two different looking starting jets
+        Square = np.zeros((im_dim, im_dim), dtype=int)
+        index =[i+int(im_dim/4) for i in range(int(im_dim/2)) if i%2 ==0 ]
+        for i in range(len(index)):
+            Square[index[i],int(im_dim/4)] = 1
+            Square[int(im_dim/4),index[i]] = 1
+            Square[index[i],int(im_dim*3/4)] = 1
+            Square[int(im_dim*3/4),index[i]] = 1
+
+#Create data set 
+        P_list = [[hadronize(Point),Point] for i in range(num_samples)]
+        S_list = [[hadronize(Square),Square] for i in range(num_samples)]
+        Sample_list = P_list + S_list
+        Shufflehad_list = []
+        Conditions_list = []
+        for i in range(num_samples):
+            x = random.randint(0,len(Sample_list)-1)
+            Shufflehad_list.append(Sample_list[x][0])
+            Conditions_list.append(Sample_list[x][1])
+        Hadronsarray = np.stack(Shufflehad_list)
+        Consarray = np.stack(Conditions_list)
+        Hadronsarray= torch.tensor(Hadronsarray).to(self.device)
+        Hadronsarray = Hadronsarray.to(torch.float32)
+        print(Hadronsarray.shape,Consarray.shape)
+
+
+       #------------------------------
         print()
         print('------------------ Sampling ------------------')
         print('--------------------------------------------')
+      
         n_samples = 1000
-        test_data = self.train_dataloader.dataset
-        C = test_data.label
-        c = C[:n_samples].view(n_samples,self.image_dim*self.image_dim)
-        print(c.shape,'conditions shape')
         samples_outputfile = str(self.results_folder / 'samples.pkl')
         if os.path.exists(samples_outputfile):
             with open(samples_outputfile, "rb") as f:
                 samples = pickle.load(f) 
             print(f"Loaded samples from: {samples_outputfile} (delete and re-run if you'd like to re-train)")
         else:
-            samples = self.sample(model,E,c, image_size=self.image_dim, n_samples=n_samples)
+            samples = self.sample(model,hencoder,cencoder,Hadronsarray, image_size=self.image_dim, n_samples=n_samples)
 
             with open(samples_outputfile, "wb") as f:
                 pickle.dump(samples, f)
@@ -287,7 +299,8 @@ class DDPM_JetImage(common_base.CommonBase):
 
         # Get the generated images (i.e. last time step)
         samples_0 = np.squeeze(samples[-1])
- 
+
+        
         #---------------------------------------------
         # Plot some observables
         #---------------------------------------------  
@@ -296,33 +309,34 @@ class DDPM_JetImage(common_base.CommonBase):
         print('--------------------------------------------')
 
         # Get images from the training set, for comparison
-        test_had = test_data.data 
-        indices = torch.randperm(len(test_had))[:n_samples]
-        train_had = np.squeeze(torch.stack([test_had[idx] for idx in indices]).numpy())
+        #train_dataset = self.train_dataloader.dataset
+        #indices = torch.randperm(len(train_dataset))[:n_samples]
+    
 
         # Now, samples_0 and train_samples are of shape (n_samples, image_dim, image_dim)
-   
+
         # N pixels above threshold
-        threshold = self.threshold
-        N_generated = np.sum(samples_0 > threshold, axis=(1,2))
-        N_train = np.sum(train_had > threshold, axis=(1,2))
-        plot_results.plot_histogram_1d(x_list=[N_generated, N_train], 
-                                       label_list=['generated', 'target'],
-                                       bins=np.linspace(-0.5, 29.5, 31),
-                                       xlabel=f'N pixels with z>{threshold}', 
-                                       filename='N_pixels.png', 
-                                       output_dir=self.plot_folder)
+        #threshold = 1.e-2
+        #N_generated = np.sum(samples_0 > threshold, axis=(1,2))
+        #N_train = np.sum(train_samples > threshold, axis=(1,2))
+        
+    #plot_results.plot_histogram_1d(x_list=[N_generated, N_train], 
+     #                                  label_list=['generated', 'target'],
+      #                                 bins=np.linspace(-0.5, 29.5, 31),
+       #                                xlabel=f'N pixels with z>{threshold}', 
+        #                               filename='N_pixels.png', 
+         #                              output_dir=self.plot_folder)
 
         # z distribution
-        z_generated = samples_0.flatten()
-        z_train = train_had.flatten()
-        plot_results.plot_histogram_1d(x_list=[z_generated, z_train], 
-                                       label_list=['generated', 'target'],
-                                       bins=np.linspace(0., 1., 101),
-                                       logy=True,
-                                       xlabel=f'z (pixels)', 
-                                       filename='z.png', 
-                                       output_dir=self.plot_folder)
+        #z_generated = samples_0.flatten()
+        #z_train = train_samples.flatten()
+        #plot_results.plot_histogram_1d(x_list=[z_generated, z_train], 
+         #                              label_list=['generated', 'target'],
+          #                             bins=np.linspace(0., 1., 101),
+           #                            logy=True,
+            #                           xlabel=f'z (pixels)', 
+             #                          filename='z.png', 
+              #                         output_dir=self.plot_folder)
 
         # Plot some sample images
         for random_index in range(5):
@@ -334,13 +348,15 @@ class DDPM_JetImage(common_base.CommonBase):
             # Generate a gif of denoising
             fig = plt.figure()
             ims = []
-            for i in range(self.T_time):
+            for i in range(self.T):
                 im = plt.imshow(samples[i][random_index].reshape(self.image_dim, self.image_dim, 1), cmap="gray", animated=True)
                 ims.append([im])
             animate = animation.ArtistAnimation(fig, ims, interval=50, blit=True, repeat_delay=1000)
             animate.save(str(self.plot_folder / f'{random_index}_generated.gif'))
-
-      
+            plt.imshow(Consarray[random_index].reshape(self.image_dim, self.image_dim, 1), cmap="gray")
+            plt.savefig(str(self.plot_folder / f'{random_index}_expected.png'))
+            plt.clf()
+        sys.exit()    
 
     # -----------------------------------------------------------------------
     #
@@ -354,28 +370,31 @@ class DDPM_JetImage(common_base.CommonBase):
     # -----------------------------------------------------------------------
     # Defining the loss function
     # -----------------------------------------------------------------------
-    def p_losses(self, denoise_model,emodel, x_0, t,size,c, noise): 
-        x_noisy = self.q(emodel=emodel,x_0=x_0, t=t,size=size,c=c, noise=noise)
-        sqrt_alphabar_t = self.extract(self.sqrt_alphabar, t, x_0.shape)
-        sqrt_recip_1minalphabar = self.extract(self.sqrt_1_minalphabar, t, x_0.shape)
-        actual_g = sqrt_recip_1minalphabar*(x_noisy-sqrt_alphabar_t*x_0)
-        predicted_g = denoise_model(x_noisy, t)
-        loss = torch.nn.functional.mse_loss(actual_g, predicted_g)
+    def p_losses(self, denoise_model,Cencoder,Hencoder, H,C, t, noise=None):
+        if noise is None:
+            noise = torch.randn_like(C)
+
+        x_noisy = self.q(x_0=C, t=t, noise=noise)
+        encoded_x_noisy = Cencoder(x_noisy.view(x_noisy.shape[0],self.image_dim*self.image_dim))
+        encoded_h = Hencoder(H.view(H.shape[0],256))
+        merged_tensor = torch.cat((encoded_x_noisy, encoded_h), dim=1)
+        reshapem = merged_tensor.reshape(x_noisy.shape[0], 1, self.image_dim, self.image_dim)
+        predicted_noise = denoise_model(reshapem, t)
+        loss = torch.nn.functional.mse_loss(noise, predicted_noise)
 
         return loss
 
     # -----------------------------------------------------------------------
     # Forward diffusion
     # -----------------------------------------------------------------------
-    def q(self,emodel, x_0, t,size, c, noise):
-      
-        k_t = self.extract(self.kt, t, x_0.shape)
+    def q(self, x_0, t, noise=None):
+        if noise is None:
+            noise = torch.randn_like(x_0)
+
         sqrt_alphabar_t = self.extract(self.sqrt_alphabar, t, x_0.shape)
-       
         sqrt_one_minus_alphabar_t = self.extract(self.sqrt_one_minus_alphabar, t, x_0.shape)
-        qresult = sqrt_alphabar_t * x_0 + sqrt_one_minus_alphabar_t * noise+k_t*emodel(c.view(size,self.image_dim,self.image_dim)).view(x_0.shape)
-        #qresult = qresult.to(self.device)
-        return qresult
+
+        return sqrt_alphabar_t * x_0 + sqrt_one_minus_alphabar_t * noise
 
     # -----------------------------------------------------------------------
     # Define function allowing us to extract t index for a batch
@@ -395,20 +414,20 @@ class DDPM_JetImage(common_base.CommonBase):
     # With a trained model, we can now subtract the noise
     #---------------------------------------------
     @torch.no_grad()
-    def p_sample(self,c,emodel, model, x, t, t_index):
+    def p_sample(self, model,hmodel,cmodel,H, x, t, t_index):
         betas_t = self.extract(self.beta, t, x.shape)
         sqrt_one_minus_alphas_cumprod_t = self.extract(self.sqrt_one_minus_alphabar, t, x.shape)
         sqrt_recip_alphas_t = self.extract(self.sqrt_1_alpha, t, x.shape)
-        s_tcoef = self.extract(self.st_coef, t, x.shape)
-        k_t = self.extract(self.kt, t, x.shape)
-        k_tprev = self.extract(self.ktprev, t, x.shape)
-    
+        
         # Equation 11 in the paper
         # Use our model (noise predictor) to predict the mean
-        model_mean = sqrt_recip_alphas_t * (x - betas_t * model(x, t) / sqrt_one_minus_alphas_cumprod_t)
-        coef_s_t = s_tcoef*k_t*emodel(c.view(1000,1,16,16)).view(x.shape)
-        s_t_minusone = k_tprev*emodel(c.view(1000,1,16,16)).view(x.shape)
-        model_mean = model_mean + coef_s_t+s_t_minusone
+        
+        encoded_x_noisy = cmodel(x.view(x.shape[0],self.image_dim*self.image_dim))
+        encoded_h = hmodel(H.view(H.shape[0],256))
+        merged_tensor = torch.cat((encoded_x_noisy, encoded_h), dim=1)
+        reshapem = merged_tensor.reshape(x.shape[0], 1, self.image_dim, self.image_dim)
+        model_mean = sqrt_recip_alphas_t * (x - betas_t * model(reshapem, t) / sqrt_one_minus_alphas_cumprod_t)
+
         if t_index == 0:
             return model_mean
         else:
@@ -421,22 +440,18 @@ class DDPM_JetImage(common_base.CommonBase):
     # Algorithm 2 (including returning all images)
     #---------------------------------------------
     @torch.no_grad()
-    def sample(self, model,emodel,c, image_size, n_samples, channels=1):
+    def sample(self, model,hmodel,cmodel,H, image_size, n_samples, channels=1):
         shape = (n_samples, channels, image_size, image_size)
         device = next(model.parameters()).device
-        
+
         b = shape[0]
         # start from pure noise (for each example in the batch)
         img = torch.randn(shape, device=device)
-        c= c.to(self.device)
-        img = img.to(self.device)
-        s_T = emodel(c.view(1000,1,16,16)).view(img.shape)
-        x_T = img + s_T
         imgs = []
 
-        desc = f'Generating {n_samples} samples, {self.T_time} time steps'
-        for i in tqdm(reversed(range(0, self.T_time)), desc=desc, total=self.T_time):
-            img = self.p_sample(c,emodel,model, x_T, torch.full((b,), i, device=device, dtype=torch.long), i)
+        desc = f'Generating {n_samples} samples, {self.T} time steps'
+        for i in tqdm(reversed(range(0, self.T)), desc=desc, total=self.T):
+            img = self.p_sample(model,hmodel,cmodel,H, img, torch.full((b,), i, device=device, dtype=torch.long), i)
             imgs.append(img.cpu().numpy())
         return imgs
 
@@ -444,17 +459,18 @@ class DDPM_JetImage(common_base.CommonBase):
 # Dataset for jet images
 # ================================================================================================
 class JetImageDataset(torch.utils.data.Dataset):
-    def __init__(self, X,C, n_train):
+    def __init__(self, H,C, n_train):
         super().__init__()
         # Add a dimension for channel (expected by the model)
-        X = X[:n_train,:,:]
+        H = H[:n_train,:,:]
+        H = np.expand_dims(H, axis=1)
+        self.data = torch.from_numpy(H).float()
         C = C[:n_train,:,:]
-        X = np.expand_dims(X, axis=1)
         C = np.expand_dims(C, axis=1)
-        self.data = torch.from_numpy(X).float()
-        self.label = torch.from_numpy(C).float()
+        self.c = torch.from_numpy(C).float()
+
     def __len__(self):
         return self.data.shape[0]
 
     def __getitem__(self, idx):
-        return self.data[idx],self.label[idx]
+        return self.data[idx],self.c[idx]

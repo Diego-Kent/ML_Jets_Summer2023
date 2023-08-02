@@ -3,16 +3,16 @@ import random
 import matplotlib.pyplot as plt
 import os
 from silx.io.dictdump import dicttoh5
-output_dir = 'Output'
-filename = 'Toyhadronization.h5'
+output_dir = './Output'
+filename = 'Thadronsamples.h5'
 
 # Define Hadronization function
-im_dim = 28
-num_samples = 100
+im_dim = 16
+num_samples = 10000
 output_dir = 'Output'
 def choose_z():
   z =[]
-  N = random.randint(2,8)
+  N = random.randint(2,6)
   for k in range(N):
     if k == 0:
       z_0 = random.uniform(0, 0.9)
@@ -39,21 +39,21 @@ def hadronize(P):
   return sum(L)
 #Define two different looking starting jets
 Point = np.zeros((im_dim, im_dim))
-Point[14,14] = 1
+Point[6,6] = 1
 plt.imshow(Point, cmap='gray')  # 'gray' colormap will display the image in black and white
 plt.axis('off')  # Turn off the axis ticks and labels
 plt.savefig(os.path.join(output_dir, 'P.pdf'))
 plt.clf()
 
 #Define two different looking starting jets
-Square = np.zeros((28, 28), dtype=int)
-index =[i+7 for i in range(14) if i%2 ==0 ]
-index_2 = [i+14 for i in range(14) if i%2 ==0 ]
+Square = np.zeros((im_dim, im_dim), dtype=int)
+index =[i+int(im_dim/4) for i in range(int(im_dim/2)) if i%2 ==0 ]
+index_2 = [i+int(im_dim/2) for i in range(int(im_dim/2)) if i%2 ==0 ]
 for i in range(len(index)):
-  Square[index[i],7] = 1
-  Square[7,index[i]] = 1
-  Square[index[i],21] = 1
-  Square[21,index[i]] = 1
+  Square[index[i],int(im_dim/4)] = 1
+  Square[int(im_dim/4),index[i]] = 1
+  Square[index[i],int(im_dim*3/4)] = 1
+  Square[int(im_dim*3/4),index[i]] = 1
 plt.imshow(Square, cmap='gray')  # 'gray' colormap will display the image in black and white
 plt.axis('off')  # Turn off the axis ticks and labels
 plt.savefig(os.path.join(output_dir, 'S.pdf'))
@@ -71,10 +71,11 @@ for i in range(num_samples):
   Shufflehad_list.append(Sample_list[x][0])
   Conditions_list.append(Sample_list[x][1])
 Hadronsarray = np.stack(Shufflehad_list)
-Conditionsarray = np.stack(Conditions_list)
-print(Hadronsarray.shape,Conditionsarray.shape)
+Consarray = np.stack(Conditions_list)
+print(Hadronsarray.shape,Consarray.shape)
 results['Had'] = Hadronsarray 
-results['Cond'] = Conditionsarray
+results['Cond'] = Consarray
+#results['constant'] = Conditionsarray
 print(f'Writing results to {output_dir}/{filename}...')
 dicttoh5(results, os.path.join(output_dir, filename), overwrite_data=True)
 print('All done.')
@@ -84,7 +85,7 @@ for k in range(5):
   plt.axis('off')  # Turn off the axis ticks and labels 
   plt.savefig(os.path.join(output_dir, f"Had{k}.pdf"))
   plt.clf()
-  plt.imshow(Conditionsarray[k], cmap='gray')  # 'gray' colormap will display the image in black and white
+  plt.imshow(Consarray[k], cmap='gray')  # 'gray' colormap will display the image in black and white
   plt.axis('off')  # Turn off the axis ticks and labels 
   plt.savefig(os.path.join(output_dir, f"Cond{k}.pdf"))
   plt.clf()
