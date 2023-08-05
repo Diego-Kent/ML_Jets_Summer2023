@@ -24,8 +24,8 @@ ddpm_jetimage:
   T_time: 500
   # Network training parameters
   n_train: 10000
-  n_epochs: 20
+  n_epochs: 2
   batch_size: 100
-  learning_rate: 0.00001
+  learning_rate: 0.0001
   threshold: 1.e-1
  

@@ -27,18 +27,18 @@ device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cp
 print(f"Using {device} device")
 
 #Hiperparameters 
-num_samples = 1000000
+num_samples = 300000
 batch_size = 1000
-learning_rate = 1e-5
-num_epochs = 10
+learning_rate = 1e-4
+num_epochs = 20
 T=300
-examples = 5
+examples = 10
 print('Running with: ', 'num_samples = ', num_samples,'batch_size = ', batch_size, 'learning_rate= ',learning_rate,'num_epochs =',num_epochs,'T =',T )
 
 #Create Training Data
 
 #First create condition stuff (partons) = 4x 4 integer random martices 
-clist =  [ torch.randint(low=400, high=1000, size=(4,4), dtype=torch.float32) for i in range(num_samples)]
+clist =  [ torch.randint(low=300, high=400, size=(4,4), dtype=torch.float32) for i in range(num_samples)]
 #Define hadrons as square of the condition copied twice 
 hadlist = [torch.cat((clist[i]@clist[i], clist[i]@clist[i], torch.zeros(56,4)), dim = 0) for i in range(num_samples) ] 
 #Make a flattened list of conditions (format issues)
@@ -144,7 +144,7 @@ def q_sample(x_start, t, noise):
 #Diffusion example
 shape = (2,1,16,16)
 constant= torch.zeros(shape)
-t = torch.tensor([299])
+t = torch.tensor([T-1])
 difuze = q_sample(constant,t,torch.rand((2,1,16,16)))
 difuze.size()
 #Visual
@@ -557,7 +557,7 @@ for i in range(examples):
     plt.axis('on')
     plt.savefig(os.path.join(output_dir, f"sample{i}.pdf"))
 for i in range(examples):
-    s = X[i]
+    s = X[i].reshape((64, 4))
 # Plot the image using matplotlib
     plt.imshow(s, cmap='gray', vmin=0, vmax=400)
     plt.xlabel(' ')
