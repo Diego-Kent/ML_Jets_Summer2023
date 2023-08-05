@@ -133,13 +133,15 @@ class DDPM_JetImage(common_base.CommonBase):
         class SimpleNN(nn.Module):
             def __init__(self, input_size, output_size):
                 super(SimpleNN, self).__init__()
-                self.fc1 = nn.Linear(input_size, output_size)
+                self.fc1 = nn.Linear(input_size, input_size)
                 self.relu = nn.ReLU()
+                self.fc2 = nn.Linear(input_size, output_size)
                
         
             def forward(self, x):
                 x = self.fc1(x)
                 x = self.relu(x)
+                x = self.fc2(x)
         
                 return x
 
@@ -354,6 +356,7 @@ class DDPM_JetImage(common_base.CommonBase):
               #                         output_dir=self.plot_folder)
 
         # Plot some sample images
+        Hadronsarray = Hadronsarray.cpu().numpy()
         for random_index in range(5):
 
             plt.imshow(samples_0[random_index].reshape(self.image_dim, self.image_dim, 1), cmap="gray")
@@ -361,6 +364,7 @@ class DDPM_JetImage(common_base.CommonBase):
             plt.clf()
 
             # Generate a gif of denoising
+
             fig = plt.figure()
             ims = []
             for i in range(self.T):
@@ -368,8 +372,9 @@ class DDPM_JetImage(common_base.CommonBase):
                 ims.append([im])
             animate = animation.ArtistAnimation(fig, ims, interval=50, blit=True, repeat_delay=1000)
             animate.save(str(self.plot_folder / f'{random_index}_generated.gif'))
-            plt.imshow(Consarray[random_index].reshape(self.image_dim, self.image_dim, 1), cmap="gray")
-            plt.savefig(str(self.plot_folder / f'{random_index}_expected.png'))
+            
+            plt.imshow(Hadronsarray[random_index].reshape(self.image_dim, self.image_dim, 1), cmap="gray")
+            plt.savefig(str(self.plot_folder / f'{random_index}_input.png'))
             plt.clf()
         sys.exit()    
 
