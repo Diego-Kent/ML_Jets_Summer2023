@@ -39,10 +39,10 @@ class DDPM_JetImage(common_base.CommonBase):
         
         self.initialize_data(results)
 
-        self.results_folder = pathlib.Path(f"{self.output_dir}/mresults")
+        self.results_folder = pathlib.Path(f"{self.output_dir}/nresults")
         self.results_folder.mkdir(exist_ok = True)
 
-        self.plot_folder = pathlib.Path(f"{self.output_dir}/mplot")
+        self.plot_folder = pathlib.Path(f"{self.output_dir}/nplot")
         self.plot_folder.mkdir(exist_ok = True)
 
         print(self)
@@ -56,9 +56,9 @@ class DDPM_JetImage(common_base.CommonBase):
         # Construct Dataset class
         self.image_dim = self.model_params['image_dim']
         self.n_train = self.model_params['n_train']
-        train_dataset = JetImageDataset(results['Cond'],results['Had'],
+        train_dataset = JetImageDataset(results['Had'],results['Cond'],
                                         self.n_train)
-        self.conditions = results['Had']
+        self.conditions = results['Cond']
         # Construct a dataloader
         self.batch_size = self.model_params['batch_size']
         self.train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True)  
@@ -256,8 +256,10 @@ class DDPM_JetImage(common_base.CommonBase):
         print('--------------------------------------------')
         n_samples = 1000
         C = self.conditions[:n_samples,:,:]
-        C = torch.from_numpy(C).unsqueeze(1).float().to(self.device)  
+        C = torch.from_numpy(C).unsqueeze(1).float().to('cpu')  
+        Emodel.to('cpu')
         s_T = Emodel(C)
+        s_T = s_T.to(self.device)
         samples_outputfile = str(self.results_folder / 'samples.pkl')
         if os.path.exists(samples_outputfile):
             with open(samples_outputfile, "rb") as f:
@@ -311,7 +313,7 @@ class DDPM_JetImage(common_base.CommonBase):
 
         # Plot some sample images
         C = C.to('cpu').numpy()
-        for random_index in range(3):
+        for random_index in range(10):
 
             plt.imshow(samples_0[random_index].reshape(self.image_dim, self.image_dim, 1), cmap="gray")
             plt.savefig(str(self.plot_folder / f'{random_index}_generated.png'))
