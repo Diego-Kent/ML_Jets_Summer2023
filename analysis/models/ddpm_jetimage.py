@@ -7,6 +7,7 @@ which implements the DDPM paper https://arxiv.org/abs/2006.11239.
 
 import os
 import sys
+import random
 import pathlib
 import numpy as np
 import matplotlib
@@ -39,10 +40,10 @@ class DDPM_JetImage(common_base.CommonBase):
         
         self.initialize_data(results)
 
-        self.results_folder = pathlib.Path(f"{self.output_dir}/nresults")
+        self.results_folder = pathlib.Path(f"{self.output_dir}/jmresults")
         self.results_folder.mkdir(exist_ok = True)
 
-        self.plot_folder = pathlib.Path(f"{self.output_dir}/nplot")
+        self.plot_folder = pathlib.Path(f"{self.output_dir}/mjplot")
         self.plot_folder.mkdir(exist_ok = True)
 
         print(self)
@@ -59,6 +60,7 @@ class DDPM_JetImage(common_base.CommonBase):
         train_dataset = JetImageDataset(results['Had'],results['Cond'],
                                         self.n_train)
         self.conditions = results['Cond']
+        self.had = results['Had']
         # Construct a dataloader
         self.batch_size = self.model_params['batch_size']
         self.train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True)  
@@ -313,25 +315,47 @@ class DDPM_JetImage(common_base.CommonBase):
 
         # Plot some sample images
         C = C.to('cpu').numpy()
-        for random_index in range(10):
+        #for random_index in range(10):
 
-            plt.imshow(samples_0[random_index].reshape(self.image_dim, self.image_dim, 1), cmap="gray")
-            plt.savefig(str(self.plot_folder / f'{random_index}_generated.png'))
-            plt.clf()
+         #   plt.imshow(samples_0[random_index].reshape(self.image_dim, self.image_dim, 1), cmap="gray")
+          #  plt.savefig(str(self.plot_folder / f'{random_index}_generated.png'))
+           # plt.clf()
             
-            plt.imshow(C[random_index].reshape(self.image_dim, self.image_dim, 1), cmap="gray")
-            plt.savefig(str(self.plot_folder / f'{random_index}_input.png'))
-            plt.clf()
+           # plt.imshow(C[random_index].reshape(self.image_dim, self.image_dim, 1), cmap="gray")
+            #plt.savefig(str(self.plot_folder / f'{random_index}_input.png'))
+            #plt.clf()
 
             # Generate a gif of denoising
-            fig = plt.figure()
-            ims = []
-            for i in range(self.T):
-                im = plt.imshow(samples[i][random_index].reshape(self.image_dim, self.image_dim, 1), cmap="gray", animated=True)
-                ims.append([im])
-            animate = animation.ArtistAnimation(fig, ims, interval=50, blit=True, repeat_delay=1000)
-            animate.save(str(self.plot_folder / f'{random_index}_generated.gif'))
+            #fig = plt.figure()
+            #ims = []
+            #for i in range(self.T):
+             #   im = plt.imshow(samples[i][random_index].reshape(self.image_dim, self.image_dim, 1), cmap="gray", animated=True)
+              #  ims.append([im])
+            #animate = animation.ArtistAnimation(fig, ims, interval=50, blit=True, repeat_delay=1000)
+            #animate.save(str(self.plot_folder / f'{random_index}_generated.gif'))
 
+        #Sample images
+        n_samples = 10
+        for i in range(n_samples):
+            j = random.randint(1, 100)
+            C = self.conditions[j]
+            C = torch.from_numpy(C).unsqueeze(1).float().to('cpu')
+            C= C.view(1,1,16,16)
+            H =  self.had[j]
+            Emodel.to('cpu')
+            s_T = Emodel(C)
+            s_T = s_T.to(self.device)       
+            ssamples = self.sample(model,s_T, image_size=self.image_dim, n_samples=1)
+            ssamples_0 = np.squeeze(ssamples[-1])
+            plt.imshow(ssamples_0.reshape(self.image_dim, self.image_dim, 1), cmap="gray")
+            plt.savefig(str(self.plot_folder / f'{i}_generated.png'))
+            plt.clf()
+            plt.imshow(C.reshape(self.image_dim, self.image_dim, 1), cmap="gray")
+            plt.savefig(str(self.plot_folder / f'{i}_condition.png'))
+            plt.clf()
+            plt.imshow(H.reshape(self.image_dim, self.image_dim, 1), cmap="gray")
+            plt.savefig(str(self.plot_folder / f'{i}_hadron.png'))
+            plt.clf()
         sys.exit()    
 
     # -----------------------------------------------------------------------
@@ -354,6 +378,7 @@ class DDPM_JetImage(common_base.CommonBase):
         kt = self.extract(self.kt, t, x_0.shape)
         s_t = kt*emodel(C)
         x_noisy = self.q(x_0=x_0, t=t, noise=noise)+s_t
+        
         sqrt_alphabar_t = self.extract(self.sqrt_alphabar, t, x_0.shape)
         oneover = self.extract(self.oneoversqrt_one_minus_alphabar, t, x_0.shape)
         expected_g = oneover*(x_noisy-sqrt_alphabar_t*x_0)
