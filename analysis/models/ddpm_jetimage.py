@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from tqdm.auto import tqdm
 import pickle
-
+from matplotlib.backends.backend_pdf import PdfPages
 import torch
 import torchvision
 import torch.nn as nn
@@ -40,10 +40,10 @@ class DDPM_JetImage(common_base.CommonBase):
         
         self.initialize_data(results)
 
-        self.results_folder = pathlib.Path(f"{self.output_dir}/jmresults")
+        self.results_folder = pathlib.Path(f"{self.output_dir}/toyforwardhadresults")
         self.results_folder.mkdir(exist_ok = True)
 
-        self.plot_folder = pathlib.Path(f"{self.output_dir}/mjplot")
+        self.plot_folder = pathlib.Path(f"{self.output_dir}/toyforwardhadplot")
         self.plot_folder.mkdir(exist_ok = True)
 
         print(self)
@@ -102,7 +102,7 @@ class DDPM_JetImage(common_base.CommonBase):
         #---------------------------------------------
 
         # Define beta schedule, and define related parameters: alpha, alpha_bar
-        self.T = 300
+        self.T = 1000
         self.beta = torch.linspace(0.0001, 0.02, self.T)
         alpha = 1. - self.beta
         alphabar = torch.cumprod(alpha, axis=0)
@@ -275,7 +275,7 @@ class DDPM_JetImage(common_base.CommonBase):
             print(f'Saved {n_samples} samples: {samples_outputfile}')
 
         # Get the generated images (i.e. last time step)
-        samples_0 = np.squeeze(samples[-1])
+        samples_0 = np.squeeze(samples[self.T-2])
         print('successful sampling')
         #---------------------------------------------
         # Plot some observables
@@ -314,48 +314,69 @@ class DDPM_JetImage(common_base.CommonBase):
                                        output_dir=self.plot_folder)
 
         # Plot some sample images
-        C = C.to('cpu').numpy()
-        #for random_index in range(10):
-
-         #   plt.imshow(samples_0[random_index].reshape(self.image_dim, self.image_dim, 1), cmap="gray")
-          #  plt.savefig(str(self.plot_folder / f'{random_index}_generated.png'))
-           # plt.clf()
+        #C = C.to('cpu').numpy()
+        C = self.conditions[:n_samples,:,:]
+        for random_index in range(10):
+            plt.clf()
+            plt.imshow(samples[998][random_index].reshape(self.image_dim, self.image_dim, 1), cmap="gray")
+            plt.savefig(str(self.plot_folder / f'{random_index}_generated.png'))
+            plt.clf()
             
-           # plt.imshow(C[random_index].reshape(self.image_dim, self.image_dim, 1), cmap="gray")
-            #plt.savefig(str(self.plot_folder / f'{random_index}_input.png'))
-            #plt.clf()
+            plt.imshow(C[random_index].reshape(self.image_dim, self.image_dim, 1), cmap="gray")
+            plt.savefig(str(self.plot_folder / f'{random_index}_input.png'))
+            plt.clf()
 
             # Generate a gif of denoising
-            #fig = plt.figure()
-            #ims = []
-            #for i in range(self.T):
-             #   im = plt.imshow(samples[i][random_index].reshape(self.image_dim, self.image_dim, 1), cmap="gray", animated=True)
-              #  ims.append([im])
-            #animate = animation.ArtistAnimation(fig, ims, interval=50, blit=True, repeat_delay=1000)
-            #animate.save(str(self.plot_folder / f'{random_index}_generated.gif'))
+        #for j in range(3):
+         #   k = random.randint(1, 100)
+            fig = plt.figure()
+            ims = []
+            for i in range(1000):
+                im = plt.imshow(samples[i][random_index].reshape(self.image_dim, self.image_dim, 1), cmap="gray", animated=True)
+                ims.append([im])
+            
+            animate = animation.ArtistAnimation(fig, ims, interval=2, blit=True, repeat_delay=9000)
+            animate.save(str(self.plot_folder / f'{random_index}_generated.gif'))
+            # Get the last frame from ims
+            # Create a new figure for the last frame
+            #fig_last = plt.figure()
+            #ax_last = fig_last.add_subplot(111)
 
+# Get the last frame from ims
+            #last_frame = ims[-2][0].get_array()  # Get the image data from the AxesImage object
+
+# Display the last frame
+            #ax_last.imshow(last_frame, cmap="gray")
+
+# Save the last frame as a PDF
+            #pdf_filename = str(self.plot_folder / f'{random_index}_slast_frame.pdf')
+            #pp = PdfPages(pdf_filename)
+            #pp.savefig(fig_last)
+            #pp.close()
+
+      
         #Sample images
-        n_samples = 10
-        for i in range(n_samples):
-            j = random.randint(1, 100)
-            C = self.conditions[j]
-            C = torch.from_numpy(C).unsqueeze(1).float().to('cpu')
-            C= C.view(1,1,16,16)
-            H =  self.had[j]
-            Emodel.to('cpu')
-            s_T = Emodel(C)
-            s_T = s_T.to(self.device)       
-            ssamples = self.sample(model,s_T, image_size=self.image_dim, n_samples=1)
-            ssamples_0 = np.squeeze(ssamples[-1])
-            plt.imshow(ssamples_0.reshape(self.image_dim, self.image_dim, 1), cmap="gray")
-            plt.savefig(str(self.plot_folder / f'{i}_generated.png'))
-            plt.clf()
-            plt.imshow(C.reshape(self.image_dim, self.image_dim, 1), cmap="gray")
-            plt.savefig(str(self.plot_folder / f'{i}_condition.png'))
-            plt.clf()
-            plt.imshow(H.reshape(self.image_dim, self.image_dim, 1), cmap="gray")
-            plt.savefig(str(self.plot_folder / f'{i}_hadron.png'))
-            plt.clf()
+        #n_samples = 10
+        #for i in range(n_samples):
+         #   j = random.randint(1, 100)
+          #  C = self.conditions[j]
+           # C = torch.from_numpy(C).unsqueeze(1).float().to('cpu')
+           # C= C.view(1,1,16,16)
+           # H =  self.had[j]
+           # Emodel.to('cpu')
+           # s_T = Emodel(C)
+           # s_T = s_T.to(self.device)       
+           # ssamples = self.sample(model,s_T, image_size=self.image_dim, n_samples=1)
+           # ssamples_0 = np.squeeze(ssamples[self.T-1])
+           # plt.imshow(ssamples_0.reshape(self.image_dim, self.image_dim, 1), cmap="gray")
+           # plt.savefig(str(self.plot_folder / f'{i}_generated.png'))
+           # plt.clf()
+           # plt.imshow(C.reshape(self.image_dim, self.image_dim, 1), cmap="gray")
+           # plt.savefig(str(self.plot_folder / f'{i}_condition.png'))
+           # plt.clf()
+           # plt.imshow(H.reshape(self.image_dim, self.image_dim, 1), cmap="gray")
+           # plt.savefig(str(self.plot_folder / f'{i}_expected.png'))
+           # plt.clf()
         sys.exit()    
 
     # -----------------------------------------------------------------------
@@ -431,7 +452,7 @@ class DDPM_JetImage(common_base.CommonBase):
         model_mean = sqrt_recip_alphas_t * (x - betas_t * model(x, t) / sqrt_one_minus_alphas_cumprod_t)
         model_mean = model_mean+stcoef*(kt*s_T)+kt_prev*s_T
        
-        if t_index == 0:
+        if (t_index == 0 or t_index ==1):
             return model_mean
         else:
             posterior_variance_t = self.extract(self.posterior_variance, t, x.shape)

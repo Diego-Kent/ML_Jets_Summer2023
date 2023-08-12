@@ -21,11 +21,11 @@ ddpm_jetimage:
   # Network architecture parameters
   image_dim: 16
   hidden_dim: 64
-  T_time: 300
+  T_time: 1000
   # Network training parameters
   n_train: 100000
-  n_epochs: 60
+  n_epochs: 100
   batch_size: 100
-  learning_rate: 0.00005
+  learning_rate: 0.0001
   threshold: 1.e-1
  
