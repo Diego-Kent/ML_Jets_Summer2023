@@ -282,7 +282,7 @@ class DDPM_JetImage(common_base.CommonBase):
         # Get the generated images (i.e. last time step)
         samples_0 = np.squeeze(samples[self.T-2])
         if self.split_forward_sampling:
-            n_samples = 10000
+            n_samples = 2000
             C = self.conditions[:n_samples,:,:]
             H = self.had[:n_samples,:,:]
             A_jet = C[0]
@@ -315,6 +315,8 @@ class DDPM_JetImage(common_base.CommonBase):
             s_T = s_T.to(self.device)
             Asamples = self.sample(model,s_T, image_size=self.image_dim, n_samples=len(CA_list))
             Asamples_0 = np.squeeze(Asamples[self.T-2])
+            Asamples_list = [Asamples_0[k] for k in range(len(CA_list))]
+            
             # z_A distribution
             z_A_generated = Asamples_0.flatten()
             z_A_train = HA.flatten()
@@ -326,16 +328,18 @@ class DDPM_JetImage(common_base.CommonBase):
                                        filename='z_A.png', 
                                        output_dir=self.plot_folder)
             # N pixels above threshold
-            threshold = 0.001
-            N_A_generated = np.sum(Asamples_0, axis=(1,2))
-            N_A_train = np.sum(HA, axis=(1,2))
-            plot_results.plot_histogram_1d(x_list=[N_A_generated, N_A_train], 
-                                       label_list=['generated', 'target'],
-                                       bins=np.linspace(-0.5, 29.5, 31),
-                                       xlabel=f'N pixels of jets generated from jet A', 
+            threshold = 0.1
+            N_A_train = [np.count_nonzero(abs(x) > threshold) for x in HA_list]
+            N_A_generated = [np.count_nonzero(abs(x)>threshold) for x in Asamples_list]
+            print(len(N_A_generated))
+            plot_results.plot_histogram_1d(x_list=[N_A_generated,N_A_train], 
+                                       label_list=['generated','target'],
+                                       bins=np.linspace(0, 10, 10),
+                                       xlabel=f'N active pixels of jets generated from jet A', 
                                        filename='N_A_pixels.png', 
                                        output_dir=self.plot_folder)
             print('Done with jet A')
+            
             #Now B
             
             CB = torch.from_numpy(CB).unsqueeze(1).float().to('cpu')  
@@ -344,6 +348,7 @@ class DDPM_JetImage(common_base.CommonBase):
             s_T = s_T.to(self.device)
             Bsamples = self.sample(model,s_T, image_size=self.image_dim, n_samples=len(CB_list))
             Bsamples_0 = np.squeeze(Bsamples[self.T-2])
+            Bsamples_list = [Bsamples_0[k] for k in range(len(CB_list))]
             # z_B distribution
             z_B_generated = Bsamples_0.flatten()
             z_B_train = HB.flatten()
@@ -355,16 +360,19 @@ class DDPM_JetImage(common_base.CommonBase):
                                        filename='z_B.png', 
                                        output_dir=self.plot_folder)
             # N pixels above threshold
-            threshold = 0.001
-            N_generated = np.sum(Bsamples_0, axis=(1,2))
-            N_train = np.sum(HB , axis=(1,2))
-            plot_results.plot_histogram_1d(x_list=[N_generated, N_train], 
-                                       label_list=['generated', 'target'],
-                                       bins=np.linspace(-0.5, 29.5, 31),
-                                       xlabel=f'N pixels with z of jets generated from jet B', 
+            
+            # N pixels above threshold
+            threshold = 0.1
+            N_B_train = [np.count_nonzero(abs(x) > threshold) for x in HB_list]
+            N_B_generated = [np.count_nonzero(abs(x)>threshold) for x in Bsamples_list]
+            print(len(N_B_generated))
+            plot_results.plot_histogram_1d(x_list=[N_B_generated,N_B_train], 
+                                       label_list=['generated','target'],
+                                       bins=np.linspace(0, 10, 10),
+                                       xlabel=f'N active pixels of jets generated from jet B', 
                                        filename='N_B_pixels.png', 
                                        output_dir=self.plot_folder)
-
+            print('Done with jet B')
             
         print('successful sampling')
         #---------------------------------------------
