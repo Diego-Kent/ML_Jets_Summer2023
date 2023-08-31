@@ -40,10 +40,10 @@ class DDPM_JetImage(common_base.CommonBase):
         
         self.initialize_data(results)
 
-        self.results_folder = pathlib.Path(f"{self.output_dir}/reversehadresults")
+        self.results_folder = pathlib.Path(f"{self.output_dir}/forwardhadresults")
         self.results_folder.mkdir(exist_ok = True)
 
-        self.plot_folder = pathlib.Path(f"{self.output_dir}/reversehadplot")
+        self.plot_folder = pathlib.Path(f"{self.output_dir}/forwardhadplot")
         self.plot_folder.mkdir(exist_ok = True)
 
         print(self)
@@ -57,10 +57,12 @@ class DDPM_JetImage(common_base.CommonBase):
         # Construct Dataset class
         self.image_dim = self.model_params['image_dim']
         self.n_train = self.model_params['n_train']
-        train_dataset = JetImageDataset(results['Part'],results['Had'],
+        train_dataset = JetImageDataset(results['Had'],results['Part'],
                                         self.n_train)
-        self.conditions = results['Had']
-        self.had = results['Part']
+        self.conditions = results['Part']
+        self.had = results['Had']
+        self.split_forward_sampling = True
+        self.reverse_hadronization = False
         # Construct a dataloader
         self.batch_size = self.model_params['batch_size']
         self.train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True)  
@@ -259,6 +261,7 @@ class DDPM_JetImage(common_base.CommonBase):
         n_samples = 600
         C = self.conditions[:n_samples,:,:]
         
+        
         C = torch.from_numpy(C).unsqueeze(1).float().to('cpu')  
         Emodel.to('cpu')
         s_T = Emodel(C)
@@ -274,9 +277,95 @@ class DDPM_JetImage(common_base.CommonBase):
             with open(samples_outputfile, "wb") as f:
                 pickle.dump(samples, f)
             print(f'Saved {n_samples} samples: {samples_outputfile}')
+        
 
         # Get the generated images (i.e. last time step)
         samples_0 = np.squeeze(samples[self.T-2])
+        if self.split_forward_sampling:
+            n_samples = 10000
+            C = self.conditions[:n_samples,:,:]
+            H = self.had[:n_samples,:,:]
+            A_jet = C[0]
+            B_jet = A_jet
+            j = 1
+            while np.linalg.norm(A_jet - B_jet) == 0:
+                B_jet = C[j]
+                j = j+1
+            plt.imshow(A_jet, cmap="gray")
+            plt.savefig(str(self.plot_folder / 'A_jet.png'))
+            plt.clf()
+            plt.imshow(B_jet, cmap="gray")
+            plt.savefig(str(self.plot_folder / 'B_jet.png'))
+            plt.clf()
+            
+            A_index = [i for i in range(n_samples) if np.linalg.norm(A_jet - C[i]) == 0]
+            B_index = [i for i in range(n_samples) if np.linalg.norm(B_jet - C[i]) == 0]
+            print(len(A_index),len(B_index),len(A_index)+len(B_index))
+            CA_list = [C[k] for k in A_index]
+            HA_list = [H[k] for k in A_index]
+            CB_list = [C[k] for k in B_index]
+            HB_list = [H[k] for k in B_index]
+            CA = np.stack(CA_list)
+            HA = np.stack(HA_list)
+            CB = np.stack(CB_list)
+            HB = np.stack(HB_list)
+            CA = torch.from_numpy(CA).unsqueeze(1).float().to('cpu')  
+            Emodel.to('cpu')
+            s_T = Emodel(CA)
+            s_T = s_T.to(self.device)
+            Asamples = self.sample(model,s_T, image_size=self.image_dim, n_samples=len(CA_list))
+            Asamples_0 = np.squeeze(Asamples[self.T-2])
+            # z_A distribution
+            z_A_generated = Asamples_0.flatten()
+            z_A_train = HA.flatten()
+            plot_results.plot_histogram_1d(x_list=[z_A_generated, z_A_train], 
+                                       label_list=['generated', 'target'],
+                                       bins=np.linspace(0., 1., 100),
+                                       logy=True,
+                                       xlabel=f'z of jet A(pixels)', 
+                                       filename='z_A.png', 
+                                       output_dir=self.plot_folder)
+            # N pixels above threshold
+            threshold = 0.001
+            N_A_generated = np.sum(Asamples_0, axis=(1,2))
+            N_A_train = np.sum(HA, axis=(1,2))
+            plot_results.plot_histogram_1d(x_list=[N_A_generated, N_A_train], 
+                                       label_list=['generated', 'target'],
+                                       bins=np.linspace(-0.5, 29.5, 31),
+                                       xlabel=f'N pixels of jets generated from jet A', 
+                                       filename='N_A_pixels.png', 
+                                       output_dir=self.plot_folder)
+            print('Done with jet A')
+            #Now B
+            
+            CB = torch.from_numpy(CB).unsqueeze(1).float().to('cpu')  
+            Emodel.to('cpu')
+            s_T = Emodel(CB)
+            s_T = s_T.to(self.device)
+            Bsamples = self.sample(model,s_T, image_size=self.image_dim, n_samples=len(CB_list))
+            Bsamples_0 = np.squeeze(Bsamples[self.T-2])
+            # z_B distribution
+            z_B_generated = Bsamples_0.flatten()
+            z_B_train = HB.flatten()
+            plot_results.plot_histogram_1d(x_list=[z_B_generated, z_B_train], 
+                                       label_list=['generated', 'target'],
+                                       bins=np.linspace(0., 1., 100),
+                                       logy=True,
+                                       xlabel=f'z of jet B(pixels)', 
+                                       filename='z_B.png', 
+                                       output_dir=self.plot_folder)
+            # N pixels above threshold
+            threshold = 0.001
+            N_generated = np.sum(Bsamples_0, axis=(1,2))
+            N_train = np.sum(HB , axis=(1,2))
+            plot_results.plot_histogram_1d(x_list=[N_generated, N_train], 
+                                       label_list=['generated', 'target'],
+                                       bins=np.linspace(-0.5, 29.5, 31),
+                                       xlabel=f'N pixels with z of jets generated from jet B', 
+                                       filename='N_B_pixels.png', 
+                                       output_dir=self.plot_folder)
+
+            
         print('successful sampling')
         #---------------------------------------------
         # Plot some observables
@@ -285,21 +374,89 @@ class DDPM_JetImage(common_base.CommonBase):
         print()
         print('------------------ Test Accuracy (in case you are running reverse hadronization)------------------')
         print('--------------------------------------------')
-        C = C.to('cpu').numpy()
-        C = self.conditions[:n_samples,:,:]
-        H = self.had[:n_samples,:,:]
-        good_predictions = 0
-        accuracy_test = 1000000
-        for random_index in range(accuracy_test):
-            index = np.random.randint(low=0, high=599)
-            expected = H[index].reshape(self.image_dim, self.image_dim, 1)
-            generated = samples[998][index].reshape(self.image_dim, self.image_dim, 1)
-            distance= np.linalg.norm(expected - generated)
-            if distance<0.2:
-                good_predictions = good_predictions+1
-        print('Total good predictions: ', good_predictions,'Out of: ',accuracy_test)
-        print('Accuracy: ',good_predictions/accuracy_test*100,'%' )
-        print()
+        if self.reverse_hadronization:
+            C = C.to('cpu').numpy()
+            C = self.conditions[:n_samples,:,:]
+            H = self.had[:n_samples,:,:]
+            good_predictions = 0
+            accuracy_test = 100
+            jet_A= C[0].reshape(self.image_dim, self.image_dim, 1)
+            jet_B= C[1].reshape(self.image_dim, self.image_dim, 1)
+
+
+
+            plt.imshow(jet_A, cmap="gray")
+            plt.savefig(str(self.plot_folder / 'FjetA.png'))
+            plt.clf()
+            plt.imshow(jet_B, cmap="gray")
+            plt.savefig(str(self.plot_folder / 'FjetB.png'))
+            plt.clf()
+            true_negative = 0
+            false_positive = 0
+            false_negative = 0
+            true_positive = 0
+            num_ajets = 0
+            num_bjets = 0
+            print('number of samples available',samples_0.shape[0] )
+            for random_index in range(accuracy_test):
+                index = np.random.randint(low=0, high=samples_0.shape[0]-1)
+                expected = H[index].reshape(self.image_dim, self.image_dim, 1)
+                condition = C[index].reshape(self.image_dim, self.image_dim, 1)
+                generated = samples[998][index].reshape(self.image_dim, self.image_dim, 1)
+                distance= np.linalg.norm(expected - generated)
+                if np.linalg.norm(condition - jet_A)==0:
+                    num_ajets = num_ajets +1
+                elif np.linalg.norm(condition - jet_B)==0:
+                    num_bjets = num_bjets +1
+                if distance<0.5:
+                    good_predictions = good_predictions+1
+                    if np.linalg.norm(expected - jet_A)==0:
+                        true_negative = true_negative+1
+                    else:
+                        true_positive = true_positive+1
+                else:
+                    if np.linalg.norm(expected - jet_A)==0:
+                        false_negative = false_negative+1
+                    else:
+                        false_positive = false_positive+1
+        
+
+            print('Total good predictions: ', good_predictions,'Out of: ',accuracy_test)
+            print('Accuracy: ',good_predictions/accuracy_test*100,'%' )
+            print('True negative: ', true_negative)
+            print('False positive: ', false_positive)
+            print('TN+FN: ', true_negative+false_negative)
+            print('number of A jets', num_ajets)
+            print('False negative: ', false_negative)
+            print('True positive: ', true_positive)
+            print('FP+TP: ', false_positive+true_positive)
+            print('number of B jets', num_bjets)
+            print()
+            print('True Positive rate: ', true_positive/(true_positive+false_negative))
+            print('False Positive rate: ', false_positive/(false_positive+true_negative))
+            fig, ax = plt.subplots()
+
+# Plot the plane
+            model_point = (false_positive/(false_positive+true_negative),true_positive/(true_positive+false_negative))
+            plt.plot([0, 1], [0, 1], color='blue')
+            plt.scatter(*model_point, color='red', label='Shift-DDPM reverse hadronization model')
+            ax.annotate('Shift-DDPM reverse hadronization model', xy=model_point, xytext=(model_point[0], model_point[1] - 0.1),
+            color='red', arrowprops=dict(arrowstyle='->', color='red'))
+# Set axis titles
+            ax.set_xlabel('False Positive Rate')
+            ax.set_ylabel('True Positive Rate')
+            plt.xlim(0, 1.01)        
+            plt.ylim(0, 1.01)
+            plt.savefig(str(self.plot_folder / 'Fmodelroc.png'))
+      
+
+
+
+
+
+
+
+
         print('------------------ Plotting ------------------')
         print('--------------------------------------------')
 
@@ -311,7 +468,7 @@ class DDPM_JetImage(common_base.CommonBase):
         # Now, samples_0 and train_samples are of shape (n_samples, image_dim, image_dim)
 
         # N pixels above threshold
-        #threshold = 0.00001
+        #threshold = 0.001
         #N_generated = np.sum(samples_0, axis=(1,2))
         #N_train = np.sum(train_samples > threshold, axis=(1,2))
         #plot_results.plot_histogram_1d(x_list=[N_generated, N_train], 
