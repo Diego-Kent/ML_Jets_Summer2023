@@ -40,10 +40,10 @@ class DDPM_JetImage(common_base.CommonBase):
         
         self.initialize_data(results)
 
-        self.results_folder = pathlib.Path(f"{self.output_dir}/toyforwardhadresults")
+        self.results_folder = pathlib.Path(f"{self.output_dir}/reversehadresults")
         self.results_folder.mkdir(exist_ok = True)
 
-        self.plot_folder = pathlib.Path(f"{self.output_dir}/toyforwardhadplot")
+        self.plot_folder = pathlib.Path(f"{self.output_dir}/reversehadplot")
         self.plot_folder.mkdir(exist_ok = True)
 
         print(self)
@@ -57,10 +57,10 @@ class DDPM_JetImage(common_base.CommonBase):
         # Construct Dataset class
         self.image_dim = self.model_params['image_dim']
         self.n_train = self.model_params['n_train']
-        train_dataset = JetImageDataset(results['Had'],results['Cond'],
+        train_dataset = JetImageDataset(results['Part'],results['Had'],
                                         self.n_train)
-        self.conditions = results['Cond']
-        self.had = results['Had']
+        self.conditions = results['Had']
+        self.had = results['Part']
         # Construct a dataloader
         self.batch_size = self.model_params['batch_size']
         self.train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True)  
@@ -256,8 +256,9 @@ class DDPM_JetImage(common_base.CommonBase):
         print()
         print('------------------ Sampling ------------------')
         print('--------------------------------------------')
-        n_samples = 1000
+        n_samples = 600
         C = self.conditions[:n_samples,:,:]
+        
         C = torch.from_numpy(C).unsqueeze(1).float().to('cpu')  
         Emodel.to('cpu')
         s_T = Emodel(C)
@@ -280,63 +281,85 @@ class DDPM_JetImage(common_base.CommonBase):
         #---------------------------------------------
         # Plot some observables
         #---------------------------------------------  
+        # Plot some sample images
+        print()
+        print('------------------ Test Accuracy (in case you are running reverse hadronization)------------------')
+        print('--------------------------------------------')
+        C = C.to('cpu').numpy()
+        C = self.conditions[:n_samples,:,:]
+        H = self.had[:n_samples,:,:]
+        good_predictions = 0
+        accuracy_test = 1000000
+        for random_index in range(accuracy_test):
+            index = np.random.randint(low=0, high=599)
+            expected = H[index].reshape(self.image_dim, self.image_dim, 1)
+            generated = samples[998][index].reshape(self.image_dim, self.image_dim, 1)
+            distance= np.linalg.norm(expected - generated)
+            if distance<0.2:
+                good_predictions = good_predictions+1
+        print('Total good predictions: ', good_predictions,'Out of: ',accuracy_test)
+        print('Accuracy: ',good_predictions/accuracy_test*100,'%' )
         print()
         print('------------------ Plotting ------------------')
         print('--------------------------------------------')
 
         # Get images from the training set, for comparison
-        train_dataset = self.train_dataloader.dataset.data
-        indices = torch.randperm(len(train_dataset))[:n_samples]
-        train_samples = np.squeeze(torch.stack([train_dataset[idx] for idx in indices]).numpy())
+        #train_dataset = self.train_dataloader.dataset.data
+        #indices = torch.randperm(len(train_dataset))[:n_samples]
+        #train_samples = np.squeeze(torch.stack([train_dataset[idx] for idx in indices]).numpy())
 
         # Now, samples_0 and train_samples are of shape (n_samples, image_dim, image_dim)
 
         # N pixels above threshold
-        threshold = 1.e-2
-        N_generated = np.sum(samples_0 > threshold, axis=(1,2))
-        N_train = np.sum(train_samples > threshold, axis=(1,2))
-        plot_results.plot_histogram_1d(x_list=[N_generated, N_train], 
-                                       label_list=['generated', 'target'],
-                                       bins=np.linspace(-0.5, 29.5, 31),
-                                       xlabel=f'N pixels with z>{threshold}', 
-                                       filename='N_pixels.png', 
-                                       output_dir=self.plot_folder)
+        #threshold = 0.00001
+        #N_generated = np.sum(samples_0, axis=(1,2))
+        #N_train = np.sum(train_samples > threshold, axis=(1,2))
+        #plot_results.plot_histogram_1d(x_list=[N_generated, N_train], 
+         #                              label_list=['generated', 'target'],
+          #                             bins=np.linspace(-0.5, 29.5, 31),
+           #                            xlabel=f'N pixels with z>{threshold}', 
+            #                           filename='N_pixels.png', 
+             #                          output_dir=self.plot_folder)
 
         # z distribution
-        z_generated = samples_0.flatten()
-        z_train = train_samples.flatten()
-        plot_results.plot_histogram_1d(x_list=[z_generated, z_train], 
-                                       label_list=['generated', 'target'],
-                                       bins=np.linspace(0., 1., 101),
-                                       logy=True,
-                                       xlabel=f'z (pixels)', 
-                                       filename='z.png', 
-                                       output_dir=self.plot_folder)
+        #z_generated = samples_0.flatten()
+        #z_train = train_samples.flatten()
+        #plot_results.plot_histogram_1d(x_list=[z_generated, z_train], 
+         #                              label_list=['generated', 'target'],
+          #                             bins=np.linspace(0., 1., 100),
+           #                            logy=True,
+            #                           xlabel=f'z (pixels)', 
+             #                          filename='z.png', 
+              #                         output_dir=self.plot_folder)
 
         # Plot some sample images
         #C = C.to('cpu').numpy()
-        C = self.conditions[:n_samples,:,:]
-        for random_index in range(10):
-            plt.clf()
-            plt.imshow(samples[998][random_index].reshape(self.image_dim, self.image_dim, 1), cmap="gray")
-            plt.savefig(str(self.plot_folder / f'{random_index}_generated.png'))
-            plt.clf()
+        #C = self.conditions[:n_samples,:,:]
+        #H = self.had[:n_samples,:,:]
+        #for random_index in range(10):
+         #   plt.clf()
+          #  plt.imshow(samples[998][random_index].reshape(self.image_dim, self.image_dim, 1), cmap="gray")
+           # plt.savefig(str(self.plot_folder / f'{random_index}_generated.png'))
+           # plt.clf()
             
-            plt.imshow(C[random_index].reshape(self.image_dim, self.image_dim, 1), cmap="gray")
-            plt.savefig(str(self.plot_folder / f'{random_index}_input.png'))
-            plt.clf()
+           # plt.imshow(C[random_index].reshape(self.image_dim, self.image_dim, 1), cmap="gray")
+           # plt.savefig(str(self.plot_folder / f'{random_index}_input.png'))
+           # plt.clf()
+           # plt.imshow(H[random_index].reshape(self.image_dim, self.image_dim, 1), cmap="gray")
+           # plt.savefig(str(self.plot_folder / f'{random_index}_expected.png'))
+           # plt.clf()
 
             # Generate a gif of denoising
         #for j in range(3):
          #   k = random.randint(1, 100)
-            fig = plt.figure()
-            ims = []
-            for i in range(1000):
-                im = plt.imshow(samples[i][random_index].reshape(self.image_dim, self.image_dim, 1), cmap="gray", animated=True)
-                ims.append([im])
+           # fig = plt.figure()
+           # ims = []
+           # for i in range(1000):
+            #    im = plt.imshow(samples[i][random_index].reshape(self.image_dim, self.image_dim, 1), cmap="gray", animated=True)
+             #   ims.append([im])
             
-            animate = animation.ArtistAnimation(fig, ims, interval=2, blit=True, repeat_delay=9000)
-            animate.save(str(self.plot_folder / f'{random_index}_generated.gif'))
+            #animate = animation.ArtistAnimation(fig, ims, interval=2, blit=True, repeat_delay=9000)
+            #animate.save(str(self.plot_folder / f'{random_index}_generated.gif'))
             # Get the last frame from ims
             # Create a new figure for the last frame
             #fig_last = plt.figure()

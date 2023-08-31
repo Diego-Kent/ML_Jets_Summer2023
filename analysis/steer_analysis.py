@@ -123,7 +123,7 @@ if __name__ == '__main__':
     parser.add_argument('-f', '--outputFile',
                         help='Output filename for hdf5',
                         action='store', type=str,
-                        default='good_events_merged.h5', )
+                        default='usamples16.h5', )
     
     args = parser.parse_args()
 
